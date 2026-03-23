@@ -6,9 +6,20 @@ from typing import Any
 
 import streamlit as st
 
-from .agent import DwhAgent
-from .dwh import DwhClient
-from .llm_local import LocalOllamaClient
+try:
+    from .agent import DwhAgent
+    from .dwh import DwhClient
+    from .llm_local import LocalOllamaClient
+except ImportError:
+    # Cuando Streamlit ejecuta el archivo como script, no hay paquete padre.
+    import sys
+
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from agente_dwh.agent import DwhAgent
+    from agente_dwh.dwh import DwhClient
+    from agente_dwh.llm_local import LocalOllamaClient
 
 
 def _env_int(name: str, default: int) -> int:
