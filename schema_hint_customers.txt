@@ -1,0 +1,58 @@
+Tabla principal para consultas:
+
+public.customers
+
+Columnas:
+- id (integer, PK)
+- idAgency (varchar(64), NOT NULL)
+- ndClientDMS (varchar(64), NOT NULL)
+- name (text)
+- paternal_surname (text)
+- maternal_surname (text)
+- bussines_name (text)
+- rfc (text)
+- curp (text)
+- mobile_phone (text)
+- phone (text)
+- other_phone (text)
+- assitant_phone (text)
+- office_phone (text)
+- mail (text)
+- activitie (text)
+- street (text)
+- external_number (text)
+- internal_number (text)
+- zipcode (text)
+- between_streets (text)
+- settlement (text)
+- deputation (text)
+- country (text)
+- city (text)
+- state (text)
+- birthay_date (date)
+- salutation (text)
+- gender (text)
+- costumer_type (text)
+- Est_Civil (text)
+- appointment (integer)
+- allow_contact (integer)
+- ndSeller (text)
+- seller_Name (text)
+- seller_Email (text)
+- clasification (integer)
+- customer_source (text)
+- preferred_contact_method (text)
+- last_sale (text)
+- timestamp_dms (timestamp)
+- timestamp_hex (varchar(128))
+- timestamp (timestamp)
+- is_consolidated (smallint, default 0)
+
+Indices y constraints relevantes:
+- PRIMARY KEY: id
+- UNIQUE INDEX uk_agency_client: (idAgency, ndClientDMS)
+
+Notas de negocio:
+- Se recomienda agrupar por idAgency para analisis por agencia.
+- Los campos de contacto pueden tener valores nulos o vacios.
+- last_sale es texto; si se requiere analisis temporal, validar formato antes de castear.

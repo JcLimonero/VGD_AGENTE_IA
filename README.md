@@ -73,3 +73,24 @@ agente-dwh --json "ventas por región en 2025"
 - `agente_dwh/dwh.py`: ejecución de SQL en DWH con SQLAlchemy.
 - `agente_dwh/agent.py`: orquestador pregunta -> SQL -> ejecución.
 - `agente_dwh/cli.py`: interfaz de línea de comandos.
+
+## Ejemplo directo con tu base PostgreSQL
+
+Con los datos compartidos, puedes ejecutar así desde una máquina autorizada por `pg_hba.conf`:
+
+```bash
+export DWH_URL='postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration'
+export LLM_ENDPOINT='http://127.0.0.1:11434'
+export LLM_MODEL='llama3.1'
+export MAX_ROWS='200'
+export LLM_TIMEOUT_SECONDS='60'
+export SCHEMA_HINT_FILE='./schema_hint_customers.txt'
+
+python3 -m agente_dwh.cli --json "cuantos clientes hay por estado"
+```
+
+Notas importantes:
+
+- Si ves un error `no pg_hba.conf entry`, debes permitir la IP origen del cliente en el servidor PostgreSQL.
+- Si el entorno no tiene `python`, usa `python3`.
+- Si el comando `agente-dwh` no existe en PATH, usa `python3 -m agente_dwh.cli`.
