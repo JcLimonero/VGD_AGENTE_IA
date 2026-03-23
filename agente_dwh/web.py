@@ -80,6 +80,28 @@ def main() -> None:
     llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 60)
     schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt")
 
+    with st.expander("Opciones avanzadas (LLM y limites)", expanded=False):
+        llm_endpoint = st.text_input(
+            "LLM_ENDPOINT",
+            value=llm_endpoint,
+            help="Si esta app corre en la nube, 127.0.0.1 apunta al servidor cloud, no a tu PC.",
+        )
+        llm_model = st.text_input("LLM_MODEL", value=llm_model)
+        max_rows = st.number_input(
+            "MAX_ROWS",
+            min_value=1,
+            max_value=10000,
+            value=int(max_rows),
+            step=10,
+        )
+        llm_timeout = st.number_input(
+            "LLM_TIMEOUT_SECONDS",
+            min_value=1,
+            max_value=600,
+            value=int(llm_timeout),
+            step=5,
+        )
+
     col1, col2 = st.columns([2, 1])
     with col1:
         question = st.text_area(
@@ -117,7 +139,14 @@ def main() -> None:
             )
             result = agent.answer(question.strip())
         except Exception as exc:  # noqa: BLE001
-            st.error(f"Error ejecutando consulta: {exc}")
+            message = str(exc)
+            st.error(f"Error ejecutando consulta: {message}")
+            if "No se pudo contactar Ollama" in message or "Connection refused" in message:
+                st.warning(
+                    "No se puede alcanzar Ollama desde este servidor. "
+                    "Si tu Ollama corre en tu laptop, debes exponerlo por una URL publica "
+                    "(por ejemplo, tunel) y usarla en LLM_ENDPOINT."
+                )
             return
 
     st.subheader("SQL generado")
