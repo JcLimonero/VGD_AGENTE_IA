@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 import streamlit as st
@@ -66,6 +67,12 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
         return
     st.success(f"Filas obtenidas: {len(rows)}")
     st.dataframe(rows, use_container_width=True)
+
+
+def _extract_pg_hba_ip(error_message: str) -> str:
+    """Extrae IP origen reportada por PostgreSQL en errores pg_hba."""
+    match = re.search(r'host "(\d{1,3}(?:\.\d{1,3}){3})"', error_message)
+    return match.group(1) if match else ""
 
 
 def main() -> None:
@@ -148,6 +155,26 @@ def main() -> None:
                     "No se puede alcanzar Ollama desde este servidor. "
                     "Si tu Ollama corre en tu laptop, debes exponerlo por una URL publica "
                     "(por ejemplo, tunel) y usarla en LLM_ENDPOINT."
+                )
+            if "no pg_hba.conf entry" in message:
+                client_ip = _extract_pg_hba_ip(message)
+                st.warning(
+                    "PostgreSQL bloqueo esta conexion por reglas de red (pg_hba.conf). "
+                    "Debes autorizar la IP origen del servidor cloud."
+                )
+                if client_ip:
+                    st.code(
+                        "host    vgd_dwh_migration    postgres    "
+                        f"{client_ip}/32    scram-sha-256"
+                    )
+                st.info(
+                    "Despues de ajustar pg_hba.conf, recarga configuracion en PostgreSQL "
+                    "(por ejemplo: SELECT pg_reload_conf();) y valida firewall en puerto 5432."
+                )
+            if "no encryption" in message:
+                st.info(
+                    "El servidor reporta conexion sin cifrado. Si tu instancia exige SSL, "
+                    "usa una URL DWH con sslmode=require y habilita SSL en PostgreSQL."
                 )
             return
 
