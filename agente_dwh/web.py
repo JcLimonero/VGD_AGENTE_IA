@@ -68,6 +68,10 @@ def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
     st.caption("Convierte una pregunta de negocio en SQL y ejecuta la consulta en tu DWH.")
+    st.info(
+        "En movil, abre el menu lateral (>>) para editar la configuracion. "
+        "Tambien puedes usar el formulario rapido de conexion que aparece abajo."
+    )
 
     with st.sidebar:
         st.header("Configuración")
@@ -101,6 +105,54 @@ def main() -> None:
             value=os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt"),
             help="Ruta a un archivo con descripción de tablas/columnas para mejorar el SQL.",
         )
+
+    with st.expander("Configuracion rapida de conexion (recomendada en movil)", expanded=True):
+        dwh_url_main = st.text_input(
+            "DWH_URL (principal)",
+            value=dwh_url,
+            help="Ejemplo: postgresql+psycopg://usuario:password@host:5432/base",
+            type="password",
+            key="dwh_url_main",
+        )
+        llm_endpoint_main = st.text_input(
+            "LLM_ENDPOINT (principal)",
+            value=llm_endpoint,
+            key="llm_endpoint_main",
+        )
+        llm_model_main = st.text_input(
+            "LLM_MODEL (principal)",
+            value=llm_model,
+            key="llm_model_main",
+        )
+        max_rows_main = st.number_input(
+            "MAX_ROWS (principal)",
+            min_value=1,
+            max_value=10000,
+            value=int(max_rows),
+            step=10,
+            key="max_rows_main",
+        )
+        llm_timeout_main = st.number_input(
+            "LLM_TIMEOUT_SECONDS (principal)",
+            min_value=1,
+            max_value=600,
+            value=int(llm_timeout),
+            step=5,
+            key="llm_timeout_main",
+        )
+        schema_hint_file_main = st.text_input(
+            "SCHEMA_HINT_FILE (principal, opcional)",
+            value=schema_hint_file,
+            key="schema_hint_file_main",
+        )
+
+    # Prioriza valores del formulario principal para mejorar uso en desktop/movil.
+    dwh_url = dwh_url_main
+    llm_endpoint = llm_endpoint_main
+    llm_model = llm_model_main
+    max_rows = max_rows_main
+    llm_timeout = llm_timeout_main
+    schema_hint_file = schema_hint_file_main
 
     col1, col2 = st.columns([2, 1])
     with col1:
