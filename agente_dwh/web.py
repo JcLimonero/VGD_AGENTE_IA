@@ -70,91 +70,15 @@ def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
     st.caption("Convierte una pregunta de negocio en SQL y ejecuta la consulta en tu DWH.")
-    st.info(
-        "En movil, abre el menu lateral (>>) para editar la configuracion. "
-        "Tambien puedes usar el formulario rapido de conexion que aparece abajo."
-    )
+    st.info("Modo simple: solo escribe tu pregunta y presiona Consultar.")
 
-    with st.sidebar:
-        st.header("Configuración")
-        dwh_url = st.text_input(
-            "DWH_URL",
-            value=os.getenv("DWH_URL", DEFAULT_DWH_URL),
-            help="Ejemplo: postgresql+psycopg://usuario:password@host:5432/base",
-            type="password",
-        )
-        llm_endpoint = st.text_input(
-            "LLM_ENDPOINT",
-            value=os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434"),
-        )
-        llm_model = st.text_input("LLM_MODEL", value=os.getenv("LLM_MODEL", "llama3.1"))
-        max_rows = st.number_input(
-            "MAX_ROWS",
-            min_value=1,
-            max_value=10000,
-            value=_env_int("MAX_ROWS", 200),
-            step=10,
-        )
-        llm_timeout = st.number_input(
-            "LLM_TIMEOUT_SECONDS",
-            min_value=1,
-            max_value=600,
-            value=_env_int("LLM_TIMEOUT_SECONDS", 60),
-            step=5,
-        )
-        schema_hint_file = st.text_input(
-            "SCHEMA_HINT_FILE (opcional)",
-            value=os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt"),
-            help="Ruta a un archivo con descripción de tablas/columnas para mejorar el SQL.",
-        )
-
-    with st.expander("Configuracion rapida de conexion (recomendada en movil)", expanded=True):
-        dwh_url_main = st.text_input(
-            "DWH_URL (principal)",
-            value=dwh_url,
-            help="Ejemplo: postgresql+psycopg://usuario:password@host:5432/base",
-            type="password",
-            key="dwh_url_main",
-        )
-        llm_endpoint_main = st.text_input(
-            "LLM_ENDPOINT (principal)",
-            value=llm_endpoint,
-            key="llm_endpoint_main",
-        )
-        llm_model_main = st.text_input(
-            "LLM_MODEL (principal)",
-            value=llm_model,
-            key="llm_model_main",
-        )
-        max_rows_main = st.number_input(
-            "MAX_ROWS (principal)",
-            min_value=1,
-            max_value=10000,
-            value=int(max_rows),
-            step=10,
-            key="max_rows_main",
-        )
-        llm_timeout_main = st.number_input(
-            "LLM_TIMEOUT_SECONDS (principal)",
-            min_value=1,
-            max_value=600,
-            value=int(llm_timeout),
-            step=5,
-            key="llm_timeout_main",
-        )
-        schema_hint_file_main = st.text_input(
-            "SCHEMA_HINT_FILE (principal, opcional)",
-            value=schema_hint_file,
-            key="schema_hint_file_main",
-        )
-
-    # Prioriza valores del formulario principal para mejorar uso en desktop/movil.
-    dwh_url = dwh_url_main
-    llm_endpoint = llm_endpoint_main
-    llm_model = llm_model_main
-    max_rows = max_rows_main
-    llm_timeout = llm_timeout_main
-    schema_hint_file = schema_hint_file_main
+    # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
+    dwh_url = os.getenv("DWH_URL", DEFAULT_DWH_URL)
+    llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434")
+    llm_model = os.getenv("LLM_MODEL", "llama3.1")
+    max_rows = _env_int("MAX_ROWS", 200)
+    llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 60)
+    schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt")
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -169,7 +93,7 @@ def main() -> None:
         run = st.button("Consultar", type="primary", use_container_width=True)
 
     if not run:
-        st.info("Completa la configuración y presiona 'Consultar'.")
+        st.info("Escribe tu pregunta y presiona 'Consultar'.")
         return
 
     if not dwh_url.strip():
