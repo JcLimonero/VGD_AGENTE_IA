@@ -21,6 +21,8 @@ except ImportError:
     from agente_dwh.dwh import DwhClient
     from agente_dwh.llm_local import LocalOllamaClient
 
+DEFAULT_DWH_URL = "postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration"
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, str(default)).strip()
@@ -77,7 +79,7 @@ def main() -> None:
         st.header("Configuración")
         dwh_url = st.text_input(
             "DWH_URL",
-            value=os.getenv("DWH_URL", ""),
+            value=os.getenv("DWH_URL", DEFAULT_DWH_URL),
             help="Ejemplo: postgresql+psycopg://usuario:password@host:5432/base",
             type="password",
         )
