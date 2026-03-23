@@ -22,6 +22,8 @@ except ImportError:
     from agente_dwh.llm_local import LocalOllamaClient
 
 DEFAULT_DWH_URL = "postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration"
+DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
+DEFAULT_LLM_MODEL = "qwen2.5:0.5b"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -74,8 +76,8 @@ def main() -> None:
 
     # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
     dwh_url = os.getenv("DWH_URL", DEFAULT_DWH_URL)
-    llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434")
-    llm_model = os.getenv("LLM_MODEL", "llama3.1")
+    llm_endpoint = os.getenv("LLM_ENDPOINT", DEFAULT_LLM_ENDPOINT)
+    llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     max_rows = _env_int("MAX_ROWS", 200)
     llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 60)
     schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt")
