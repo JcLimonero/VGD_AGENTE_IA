@@ -92,3 +92,7 @@ def main() -> None:
     else:
         for idx, row in enumerate(rows, start=1):
             print(f"{idx}. {row}")
+
+
+if __name__ == "__main__":
+    main()
