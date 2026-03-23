@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vgd-agente-ia"
+version = "0.1.0"
+description = "Agente IA para consultar un DWH con un LLM local"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "SQLAlchemy",
+]
+
+[project.scripts]
+agente-dwh = "agente_dwh.cli:main"
