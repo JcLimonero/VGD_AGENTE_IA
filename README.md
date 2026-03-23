@@ -94,3 +94,34 @@ Notas importantes:
 - Si ves un error `no pg_hba.conf entry`, debes permitir la IP origen del cliente en el servidor PostgreSQL.
 - Si el entorno no tiene `python`, usa `python3`.
 - Si el comando `agente-dwh` no existe en PATH, usa `python3 -m agente_dwh.cli`.
+
+## Sitio web para probar en desktop (Streamlit)
+
+Instala dependencias:
+
+```bash
+python3 -m pip install -e .
+```
+
+Arranca la web:
+
+```bash
+python3 -m streamlit run agente_dwh/web.py
+```
+
+Luego abre en tu navegador:
+
+```text
+http://localhost:8501
+```
+
+En la pantalla:
+
+1. Configura conexión (`DWH_URL`, endpoint/modelo de Ollama, límite).
+2. (Opcional) marca **Usar schema_hint_customers.txt**.
+3. Escribe la pregunta y pulsa **Consultar**.
+
+La web muestra:
+- SQL generado
+- resultados en tabla
+- JSON completo de respuesta

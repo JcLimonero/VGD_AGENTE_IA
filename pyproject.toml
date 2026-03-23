@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "SQLAlchemy",
+  "streamlit",
 ]
 
 [project.scripts]
 agente-dwh = "agente_dwh.cli:main"
+agente-dwh-web = "agente_dwh.web:main"
