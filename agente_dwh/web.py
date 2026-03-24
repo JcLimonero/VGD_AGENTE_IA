@@ -112,8 +112,15 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
     chart_type = st.selectbox("Tipo de gráfica", ["Barras", "Línea", "Área"], index=0)
 
     x_candidates = list(df.columns)
-    x_col = st.selectbox("Columna eje X", x_candidates, index=0)
-    y_col = st.selectbox("Columna eje Y (numérica)", numeric_cols, index=0)
+
+    # Evita errores cuando cambian las columnas entre consultas y el estado previo queda inválido.
+    if "chart_x_col" not in st.session_state or st.session_state["chart_x_col"] not in x_candidates:
+        st.session_state["chart_x_col"] = x_candidates[0]
+    if "chart_y_col" not in st.session_state or st.session_state["chart_y_col"] not in numeric_cols:
+        st.session_state["chart_y_col"] = numeric_cols[0]
+
+    x_col = st.selectbox("Columna eje X", x_candidates, key="chart_x_col")
+    y_col = st.selectbox("Columna eje Y (numérica)", numeric_cols, key="chart_y_col")
 
     chart_df = df[[x_col, y_col]].copy()
     chart_df = chart_df.dropna()
@@ -125,12 +132,13 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
     chart_df[x_col] = chart_df[x_col].astype(str)
     chart_df = chart_df.set_index(x_col)
 
+    # Pasamos solo la serie Y para evitar errores por columnas faltantes al rerender.
     if chart_type == "Barras":
-        st.bar_chart(chart_df, y=y_col, use_container_width=True)
+        st.bar_chart(chart_df[[y_col]], use_container_width=True)
     elif chart_type == "Línea":
-        st.line_chart(chart_df, y=y_col, use_container_width=True)
+        st.line_chart(chart_df[[y_col]], use_container_width=True)
     else:
-        st.area_chart(chart_df, y=y_col, use_container_width=True)
+        st.area_chart(chart_df[[y_col]], use_container_width=True)
 
 
 def _extract_pg_hba_ip(error_message: str) -> str:
