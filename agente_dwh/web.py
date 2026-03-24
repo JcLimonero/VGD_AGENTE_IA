@@ -829,8 +829,8 @@ def _render_sidebar_controls(
 
 
 def main() -> None:
-    st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
-    st.title("Agente IA para DWH (LLM local)")
+    st.set_page_config(page_title="Asistente Inteligente de Analítica", page_icon="🧠", layout="wide")
+    st.title("Asistente Inteligente de Analítica")
     st.info("Modo demo: solo escribe tu pregunta y presiona Consultar.")
     _render_field_guide()
 
