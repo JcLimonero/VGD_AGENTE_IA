@@ -183,6 +183,13 @@ SPANISH_VALUE_LABELS: dict[str, str] = {
     "hombre": "Hombre",
 }
 MXN_COLUMNS = {"monthly_income", "amount", "cost", "annual_premium"}
+TIME_IN_DAYS_COLUMNS = {
+    "avg_repurchase_days",
+    "avg_time_between_purchases",
+    "avg_days_between_purchases",
+    "avg_rebuy_time",
+    "gap_days",
+}
 FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -335,6 +342,22 @@ def _format_mxn_value(value: Any) -> str:
     return f"${number:,.2f} MXN"
 
 
+def _format_time_value(days_value: Any) -> str:
+    try:
+        days = float(days_value)
+    except (TypeError, ValueError):
+        return str(days_value)
+
+    abs_days = abs(days)
+    if abs_days > 365:
+        years = days / 365.0
+        return f"{years:,.2f} años"
+    if abs_days > 30:
+        months = days / 30.0
+        return f"{months:,.2f} meses"
+    return f"{days:,.2f} días"
+
+
 def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
     formatted = df.copy()
     for column in formatted.columns:
@@ -342,6 +365,12 @@ def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
             numeric_series = pd.to_numeric(formatted[column], errors="coerce")
             formatted[column] = [
                 _format_mxn_value(val) if pd.notna(num) else val
+                for val, num in zip(formatted[column], numeric_series)
+            ]
+        elif str(column).lower() in TIME_IN_DAYS_COLUMNS:
+            numeric_series = pd.to_numeric(formatted[column], errors="coerce")
+            formatted[column] = [
+                _format_time_value(val) if pd.notna(num) else val
                 for val, num in zip(formatted[column], numeric_series)
             ]
     return formatted
@@ -382,11 +411,12 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         if numeric_series.empty:
             st.info("La consulta devolvió un valor nulo (NULL).")
         elif len(numeric_series) == 1:
-            metric_value = (
-                _format_mxn_value(numeric_series.iloc[0])
-                if value_col_lower in MXN_COLUMNS
-                else f"{float(numeric_series.iloc[0]):,.2f}"
-            )
+            if value_col_lower in MXN_COLUMNS:
+                metric_value = _format_mxn_value(numeric_series.iloc[0])
+            elif value_col_lower in TIME_IN_DAYS_COLUMNS:
+                metric_value = _format_time_value(numeric_series.iloc[0])
+            else:
+                metric_value = f"{float(numeric_series.iloc[0]):,.2f}"
             st.metric(_friendly_column_name(value_col), metric_value)
         else:
             kpi_df = numeric_series.reset_index(drop=True).to_frame(
