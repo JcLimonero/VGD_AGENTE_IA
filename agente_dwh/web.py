@@ -9,6 +9,7 @@ import streamlit as st
 
 try:
     from .agent import DwhAgent
+    from .demo_data import ensure_demo_db
     from .dwh import DwhClient
     from .llm_local import LocalOllamaClient
 except ImportError:
@@ -19,12 +20,35 @@ except ImportError:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     from agente_dwh.agent import DwhAgent
+    from agente_dwh.demo_data import ensure_demo_db
     from agente_dwh.dwh import DwhClient
     from agente_dwh.llm_local import LocalOllamaClient
 
-DEFAULT_DWH_URL = "postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration"
+DEMO_DB_PATH = "/tmp/agente_dwh_demo.db"
+DEFAULT_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH}"
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen2.5:0.5b"
+DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
+- customers(id, customer_code, full_name, email, phone, city, state, segment, created_at)
+- vehicles(id, customer_id, vin, plate, brand, model, year, fuel_type, mileage, created_at)
+- sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, status)
+- services(id, customer_id, vehicle_id, service_date, service_type, cost, status, workshop, notes)
+
+Relaciones:
+- customers.id = vehicles.customer_id
+- customers.id = sales.customer_id
+- customers.id = services.customer_id
+- vehicles.id = sales.vehicle_id
+- vehicles.id = services.vehicle_id
+"""
+RECOMMENDED_QUESTIONS = [
+    "¿Cuántos clientes hay por estado?",
+    "Top 10 clientes con más monto de ventas en 2025.",
+    "¿Cuántos vehículos tiene cada cliente?",
+    "¿Cuál es el total de servicios y monto por tipo de servicio?",
+    "Clientes sin ventas pero con al menos un vehículo registrado.",
+    "Ingresos por mes considerando ventas y servicios.",
+]
 
 
 def _env_int(name: str, default: int) -> int:
@@ -78,8 +102,20 @@ def _extract_pg_hba_ip(error_message: str) -> str:
 def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
-    st.caption("Convierte una pregunta de negocio en SQL y ejecuta la consulta en tu DWH.")
-    st.info("Modo simple: solo escribe tu pregunta y presiona Consultar.")
+    st.caption(
+        "Convierte una pregunta de negocio en SQL y ejecuta la consulta en una base demo "
+        "de clientes, vehículos, ventas y servicios."
+    )
+    st.info("Modo demo: solo escribe tu pregunta y presiona Consultar.")
+
+    demo_info = ensure_demo_db(DEMO_DB_PATH)
+    st.success(
+        "Base demo lista: "
+        f"{demo_info['clientes']} clientes, "
+        f"{demo_info['vehiculos']} vehiculos, "
+        f"{demo_info['ventas']} ventas, "
+        f"{demo_info['servicios']} servicios."
+    )
 
     # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
     dwh_url = os.getenv("DWH_URL", DEFAULT_DWH_URL)
@@ -87,7 +123,7 @@ def main() -> None:
     llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     max_rows = _env_int("MAX_ROWS", 200)
     llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 60)
-    schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "schema_hint_customers.txt")
+    schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "")
 
     with st.expander("Opciones avanzadas (LLM y limites)", expanded=False):
         llm_endpoint = st.text_input(
@@ -111,11 +147,18 @@ def main() -> None:
             step=5,
         )
 
+    st.markdown("### Preguntas recomendadas")
+    selected_question = ""
+    rec_cols = st.columns(2)
+    for idx, recommended in enumerate(RECOMMENDED_QUESTIONS):
+        if rec_cols[idx % 2].button(recommended, key=f"q_rec_{idx}", use_container_width=True):
+            selected_question = recommended
+
     col1, col2 = st.columns([2, 1])
     with col1:
         question = st.text_area(
             "Pregunta de negocio",
-            value="Cuántos clientes hay por estado?",
+            value=selected_question or "¿Cuántos clientes hay por estado?",
             height=110,
             placeholder="Ejemplo: Top 20 agencias por número de clientes consolidados.",
         )
@@ -134,7 +177,7 @@ def main() -> None:
         st.error("Debes escribir una pregunta.")
         return
 
-    schema_hint = _read_schema_hint(schema_hint_file)
+    schema_hint = _read_schema_hint(schema_hint_file) or DEFAULT_SCHEMA_HINT
 
     with st.spinner("Generando SQL y consultando DWH..."):
         try:

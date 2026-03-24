@@ -125,3 +125,33 @@ La web muestra:
 - SQL generado
 - resultados en tabla
 - JSON completo de respuesta
+
+## Demo sin PostgreSQL (datos simulados)
+
+Para demos, la app web puede usar una base local SQLite generada automaticamente con tablas relacionadas:
+
+- `customers`
+- `vehicles`
+- `sales`
+- `services`
+
+La relacion principal es:
+
+- `customers.id` -> `vehicles.customer_id`
+- `customers.id` -> `sales.customer_id`
+- `customers.id` -> `services.customer_id`
+- `vehicles.id` -> `sales.vehicle_id`
+- `vehicles.id` -> `services.vehicle_id`
+
+En la web se activa por defecto con la variable:
+
+```bash
+export USE_DEMO_DATA=1
+```
+
+Preguntas recomendadas para demo:
+
+- "Top 10 clientes por monto total de ventas"
+- "Ventas por marca de vehículo en 2025"
+- "Clientes con más servicios realizados"
+- "Ingreso mensual por servicios"

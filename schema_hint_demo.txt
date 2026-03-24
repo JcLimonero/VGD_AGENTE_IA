@@ -1,0 +1,57 @@
+Tablas disponibles para analisis demo:
+
+1) customers
+- id (PK)
+- customer_code
+- full_name
+- email
+- phone
+- city
+- state
+- segment
+- created_at
+
+2) vehicles
+- id (PK)
+- customer_id (FK -> customers.id)
+- vin
+- plate
+- brand
+- model
+- year
+- fuel_type
+- mileage
+- created_at
+
+3) sales
+- id (PK)
+- customer_id (FK -> customers.id)
+- vehicle_id (FK -> vehicles.id)
+- sale_date
+- amount
+- channel
+- seller
+- status
+
+4) services
+- id (PK)
+- customer_id (FK -> customers.id)
+- vehicle_id (FK -> vehicles.id)
+- service_date
+- service_type
+- cost
+- status
+- workshop
+- notes
+
+Relaciones clave:
+- customers.id -> vehicles.customer_id
+- customers.id -> sales.customer_id
+- customers.id -> services.customer_id
+- vehicles.id -> sales.vehicle_id
+- vehicles.id -> services.vehicle_id
+
+Buenas practicas:
+- Para ventas por cliente, usar SUM(s.amount) agrupando por c.full_name.
+- Para servicios por cliente, usar SUM(sv.cost) y COUNT(*).
+- Para combinaciones de vehiculos y clientes, unir customers c + vehicles v.
