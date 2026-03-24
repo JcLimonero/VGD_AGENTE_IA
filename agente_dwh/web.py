@@ -78,6 +78,25 @@ RECOMMENDED_QUESTIONS = [
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
 ]
+DEMO_COMMERCIAL_QUESTIONS = [
+    "¿Cuál es el tiempo promedio de recompra de mis clientes?",
+    "¿A qué clientes les puedo ofrecer un seguro hoy?",
+    "¿Cuál es la edad promedio de los clientes que compran?",
+    "¿Qué tipo de unidad es más conveniente ofrecer por rango de edad y género?",
+    "¿Qué porcentaje de clientes tiene póliza activa, vencida o sin póliza?",
+    "¿Qué clientes tienen póliza por vencer en los próximos 60 días?",
+]
+
+GENERAL_REFERENCE_QUESTIONS = [
+    "¿Cuántos clientes hay por estado?",
+    "Top 10 clientes con más monto de ventas en 2025.",
+    "¿Cuántos vehículos tiene cada cliente?",
+    "¿Cuál es el total de servicios y monto por tipo de servicio?",
+    "Clientes sin ventas pero con al menos un vehículo registrado.",
+    "Ingresos por mes considerando ventas y servicios.",
+    "Pronóstico de ventas para los próximos 3 meses.",
+    "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
+]
 FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -403,6 +422,102 @@ def _render_field_guide() -> None:
         )
 
 
+def _render_sidebar_controls(
+    dwh_url: str,
+    llm_endpoint: str,
+    llm_model: str,
+    max_rows: int,
+    llm_timeout: int,
+) -> tuple[str, str, str, int, int, int, str, str]:
+    """Renderiza panel lateral con referencias y configuración."""
+    with st.sidebar:
+        st.markdown("## Panel lateral")
+
+        with st.expander("Preguntas de referencia", expanded=False):
+            st.caption("Solo referencia para ideas de consulta.")
+            st.markdown("**Generales**")
+            for question in RECOMMENDED_QUESTIONS:
+                st.markdown(f"- {question}")
+
+            st.markdown("**Demo comercial**")
+            for question in DEMO_COMMERCIAL_QUESTIONS:
+                st.markdown(f"- {question}")
+
+        default_horizon = _nearest_horizon_option(
+            extract_horizon_from_question(st.session_state.get("question_input", ""), default=3)
+        )
+        default_method = extract_method_from_question(
+            st.session_state.get("question_input", ""), default="moving_average"
+        )
+        default_dimension = extract_dimension_from_question(
+            st.session_state.get("question_input", ""), default="total"
+        )
+        if default_method not in FORECAST_METHODS:
+            default_method = "moving_average"
+        if default_dimension not in FORECAST_DIMENSIONS:
+            default_dimension = "total"
+
+        with st.expander("Configuración", expanded=False):
+            dwh_url = st.text_input("DWH_URL", value=dwh_url)
+            llm_endpoint = st.text_input(
+                "LLM_ENDPOINT",
+                value=llm_endpoint,
+                help="Si esta app corre en la nube, 127.0.0.1 apunta al servidor cloud, no a tu PC.",
+            )
+            llm_model = st.text_input("LLM_MODEL", value=llm_model)
+            max_rows = int(
+                st.number_input(
+                    "MAX_ROWS",
+                    min_value=1,
+                    max_value=10000,
+                    value=int(max_rows),
+                    step=10,
+                )
+            )
+            llm_timeout = int(
+                st.number_input(
+                    "LLM_TIMEOUT_SECONDS",
+                    min_value=1,
+                    max_value=600,
+                    value=int(llm_timeout),
+                    step=5,
+                )
+            )
+            st.markdown("---")
+            st.caption("Configuración de pronóstico")
+            horizon_months = int(
+                st.selectbox(
+                    "Horizonte (meses)",
+                    [1, 3, 6, 12],
+                    index=[1, 3, 6, 12].index(default_horizon),
+                    help="Cantidad de meses a estimar hacia adelante.",
+                )
+            )
+            forecast_method = st.selectbox(
+                "Método",
+                list(FORECAST_METHODS.keys()),
+                index=list(FORECAST_METHODS.keys()).index(default_method),
+                format_func=lambda key: FORECAST_METHODS[key],
+            )
+            forecast_dimension = st.selectbox(
+                "Nivel de agregación",
+                list(FORECAST_DIMENSIONS.keys()),
+                index=list(FORECAST_DIMENSIONS.keys()).index(default_dimension),
+                format_func=lambda key: FORECAST_DIMENSIONS[key],
+            )
+
+    return (
+        dwh_url,
+        llm_endpoint,
+        llm_model,
+        max_rows,
+        llm_timeout,
+        horizon_months,
+        forecast_method,
+        forecast_dimension,
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
@@ -431,37 +546,26 @@ def main() -> None:
     llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 180)
     schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "")
 
-    with st.expander("Opciones avanzadas (LLM y limites)", expanded=False):
-        llm_endpoint = st.text_input(
-            "LLM_ENDPOINT",
-            value=llm_endpoint,
-            help="Si esta app corre en la nube, 127.0.0.1 apunta al servidor cloud, no a tu PC.",
-        )
-        llm_model = st.text_input("LLM_MODEL", value=llm_model)
-        max_rows = st.number_input(
-            "MAX_ROWS",
-            min_value=1,
-            max_value=10000,
-            value=int(max_rows),
-            step=10,
-        )
-        llm_timeout = st.number_input(
-            "LLM_TIMEOUT_SECONDS",
-            min_value=1,
-            max_value=600,
-            value=int(llm_timeout),
-            step=5,
-        )
-
     default_question = "¿Cuántos clientes hay por estado?"
     if "question_input" not in st.session_state:
         st.session_state["question_input"] = default_question
 
-    st.markdown("### Preguntas recomendadas")
-    rec_cols = st.columns(2)
-    for idx, recommended in enumerate(RECOMMENDED_QUESTIONS):
-        if rec_cols[idx % 2].button(recommended, key=f"q_rec_{idx}", use_container_width=True):
-            st.session_state["question_input"] = recommended
+    (
+        dwh_url,
+        llm_endpoint,
+        llm_model,
+        max_rows,
+        llm_timeout,
+        horizon_months,
+        forecast_method,
+        forecast_dimension,
+    ) = _render_sidebar_controls(
+        dwh_url=dwh_url,
+        llm_endpoint=llm_endpoint,
+        llm_model=llm_model,
+        max_rows=max_rows,
+        llm_timeout=llm_timeout,
+    )
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -475,41 +579,6 @@ def main() -> None:
         st.markdown("### Ejecutar")
         run = st.button("Consultar", type="primary", use_container_width=True)
         run_forecast = st.button("Generar pronóstico", use_container_width=True)
-
-    default_horizon = _nearest_horizon_option(
-        extract_horizon_from_question(st.session_state.get("question_input", ""), default=3)
-    )
-    default_method = extract_method_from_question(
-        st.session_state.get("question_input", ""), default="moving_average"
-    )
-    default_dimension = extract_dimension_from_question(
-        st.session_state.get("question_input", ""), default="total"
-    )
-
-    if default_method not in FORECAST_METHODS:
-        default_method = "moving_average"
-    if default_dimension not in FORECAST_DIMENSIONS:
-        default_dimension = "total"
-
-    with st.expander("Configuración de pronóstico", expanded=False):
-        horizon_months = st.selectbox(
-            "Horizonte (meses)",
-            [1, 3, 6, 12],
-            index=[1, 3, 6, 12].index(default_horizon),
-            help="Cantidad de meses a estimar hacia adelante.",
-        )
-        forecast_method = st.selectbox(
-            "Método",
-            list(FORECAST_METHODS.keys()),
-            index=list(FORECAST_METHODS.keys()).index(default_method),
-            format_func=lambda key: FORECAST_METHODS[key],
-        )
-        forecast_dimension = st.selectbox(
-            "Nivel de agregación",
-            list(FORECAST_DIMENSIONS.keys()),
-            index=list(FORECAST_DIMENSIONS.keys()).index(default_dimension),
-            format_func=lambda key: FORECAST_DIMENSIONS[key],
-        )
 
     if not run and not run_forecast:
         st.info("Escribe tu pregunta y presiona 'Consultar' o 'Generar pronóstico'.")
