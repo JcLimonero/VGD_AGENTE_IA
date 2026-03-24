@@ -71,50 +71,50 @@ RECOMMENDED_QUESTIONS = [
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
 ]
-FIELD_GUIDE: dict[str, list[str]] = {
+FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
-        "id",
-        "customer_code",
-        "full_name",
-        "email",
-        "phone",
-        "city",
-        "state",
-        "segment",
-        "created_at",
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_code", "type": "TEXT", "example": "C00001"},
+        {"field": "full_name", "type": "TEXT", "example": "Mariana Ramirez Martinez"},
+        {"field": "email", "type": "TEXT", "example": "cliente001@demo.local"},
+        {"field": "phone", "type": "TEXT", "example": "5540643274"},
+        {"field": "city", "type": "TEXT", "example": "Leon"},
+        {"field": "state", "type": "TEXT", "example": "Guanajuato"},
+        {"field": "segment", "type": "TEXT", "example": "Retail"},
+        {"field": "created_at", "type": "DATE/TEXT", "example": "2024-07-30"},
     ],
     "vehicles": [
-        "id",
-        "customer_id",
-        "vin",
-        "plate",
-        "brand",
-        "model",
-        "year",
-        "fuel_type",
-        "mileage",
-        "created_at",
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_id", "type": "INTEGER", "example": "1"},
+        {"field": "vin", "type": "TEXT", "example": "VIN00000000000001"},
+        {"field": "plate", "type": "TEXT", "example": "D1858NE"},
+        {"field": "brand", "type": "TEXT", "example": "Nissan"},
+        {"field": "model", "type": "TEXT", "example": "Versa"},
+        {"field": "year", "type": "INTEGER", "example": "2026"},
+        {"field": "fuel_type", "type": "TEXT", "example": "Gasolina"},
+        {"field": "mileage", "type": "INTEGER", "example": "138494"},
+        {"field": "created_at", "type": "DATE/TEXT", "example": "2023-06-12"},
     ],
     "sales": [
-        "id",
-        "customer_id",
-        "vehicle_id",
-        "sale_date",
-        "amount",
-        "channel",
-        "seller",
-        "status",
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_id", "type": "INTEGER", "example": "1"},
+        {"field": "vehicle_id", "type": "INTEGER", "example": "1"},
+        {"field": "sale_date", "type": "DATE/TEXT", "example": "2025-07-31"},
+        {"field": "amount", "type": "REAL", "example": "347758.40"},
+        {"field": "channel", "type": "TEXT", "example": "Digital"},
+        {"field": "seller", "type": "TEXT", "example": "Alberto Ruiz"},
+        {"field": "status", "type": "TEXT", "example": "facturada"},
     ],
     "services": [
-        "id",
-        "customer_id",
-        "vehicle_id",
-        "service_date",
-        "service_type",
-        "cost",
-        "status",
-        "workshop",
-        "notes",
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_id", "type": "INTEGER", "example": "1"},
+        {"field": "vehicle_id", "type": "INTEGER", "example": "1"},
+        {"field": "service_date", "type": "DATE/TEXT", "example": "2025-09-02"},
+        {"field": "service_type", "type": "TEXT", "example": "Mantenimiento preventivo"},
+        {"field": "cost", "type": "REAL", "example": "10289.01"},
+        {"field": "status", "type": "TEXT", "example": "entregado"},
+        {"field": "workshop", "type": "TEXT", "example": "Taller Sur"},
+        {"field": "notes", "type": "TEXT", "example": "Generado para demo"},
     ],
 }
 
@@ -341,10 +341,24 @@ def _render_field_guide() -> None:
             "- vehicles.id = services.vehicle_id"
         )
 
-        st.markdown("**Tablas y campos**")
-        for table_name, fields in FIELD_GUIDE.items():
-            pretty_fields = ", ".join(_friendly_column_name(field) for field in fields)
-            st.write(f"- **{table_name}**: {pretty_fields}")
+        st.markdown("**Tablas y campos (con tipo y ejemplo)**")
+        for table_name, details in FIELD_GUIDE_DETAILS.items():
+            st.markdown(f"**{table_name}**")
+            guide_df = pd.DataFrame(details)
+            guide_df["campo"] = guide_df["field"].apply(_friendly_column_name)
+            guide_df = guide_df.rename(
+                columns={
+                    "campo": "Campo",
+                    "field": "Nombre técnico",
+                    "type": "Tipo",
+                    "example": "Ejemplo",
+                }
+            )
+            st.dataframe(
+                guide_df[["Campo", "Nombre técnico", "Tipo", "Ejemplo"]],
+                use_container_width=True,
+                hide_index=True,
+            )
 
         st.markdown("**Ejemplos de preguntas útiles**")
         st.markdown(
