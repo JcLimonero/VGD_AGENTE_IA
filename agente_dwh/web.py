@@ -98,6 +98,55 @@ GENERAL_REFERENCE_QUESTIONS = [
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
 ]
+SPANISH_COLUMN_LABELS: dict[str, str] = {
+    "id": "Id",
+    "customer_id": "Id Cliente",
+    "vehicle_id": "Id Unidad",
+    "customer_code": "Código Cliente",
+    "full_name": "Nombre Completo",
+    "gender": "Género",
+    "age": "Edad",
+    "birth_date": "Fecha Nacimiento",
+    "email": "Correo",
+    "phone": "Teléfono",
+    "city": "Ciudad",
+    "state": "Estado",
+    "segment": "Segmento",
+    "monthly_income": "Ingreso Mensual",
+    "risk_profile": "Perfil Riesgo",
+    "created_at": "Fecha Alta",
+    "vin": "VIN",
+    "plate": "Placa",
+    "brand": "Marca",
+    "model": "Modelo",
+    "unit_type": "Tipo Unidad",
+    "year": "Año",
+    "fuel_type": "Tipo Combustible",
+    "mileage": "Kilometraje",
+    "sale_date": "Fecha Venta",
+    "amount": "Monto",
+    "channel": "Canal",
+    "seller": "Vendedor",
+    "payment_method": "Método Pago",
+    "status": "Estatus",
+    "service_date": "Fecha Servicio",
+    "service_type": "Tipo Servicio",
+    "cost": "Costo",
+    "workshop": "Taller",
+    "notes": "Notas",
+    "policy_start_date": "Inicio Póliza",
+    "policy_end_date": "Fin Póliza",
+    "insurer": "Aseguradora",
+    "coverage_type": "Cobertura",
+    "annual_premium": "Prima Anual",
+    "policy_status": "Estatus Póliza",
+    "claim_count": "Número Siniestros",
+    "last_claim_date": "Fecha Último Siniestro",
+    "avg_repurchase_days": "Días Promedio Recompra",
+    "avg_time_between_purchases": "Días Promedio Entre Compras",
+    "avg_days_between_purchases": "Días Promedio Entre Compras",
+    "avg_rebuy_time": "Días Promedio Recompra",
+}
 FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -201,7 +250,11 @@ def _build_agent(
 
 
 def _friendly_column_name(name: Any) -> str:
-    text = str(name).strip().replace("_", " ")
+    raw = str(name).strip()
+    key = raw.lower()
+    if key in SPANISH_COLUMN_LABELS:
+        return SPANISH_COLUMN_LABELS[key]
+    text = raw.replace("_", " ")
     return " ".join(part.capitalize() for part in text.split())
 
 
