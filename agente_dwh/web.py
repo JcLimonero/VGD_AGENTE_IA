@@ -339,7 +339,7 @@ def _format_mxn_value(value: Any) -> str:
         number = float(value)
     except (TypeError, ValueError):
         return str(value)
-    return f"${number:,.2f} MXN"
+    return f"MXN ${number:,.2f}"
 
 
 def _format_time_value(days_value: Any) -> str:
