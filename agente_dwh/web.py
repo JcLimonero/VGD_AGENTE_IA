@@ -49,17 +49,20 @@ DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen2.5:7b"
 FALLBACK_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
-- customers(id, customer_code, full_name, email, phone, city, state, segment, created_at)
-- vehicles(id, customer_id, vin, plate, brand, model, year, fuel_type, mileage, created_at)
-- sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, status)
+- customers(id, customer_code, full_name, gender, age, birth_date, email, phone, city, state, segment, monthly_income, risk_profile, created_at)
+- vehicles(id, customer_id, vin, plate, brand, model, unit_type, year, fuel_type, mileage, created_at)
+- sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, payment_method, status)
 - services(id, customer_id, vehicle_id, service_date, service_type, cost, status, workshop, notes)
+- insurance_policies(id, customer_id, vehicle_id, policy_start_date, policy_end_date, insurer, coverage_type, annual_premium, policy_status, claim_count, last_claim_date)
 
 Relaciones:
 - customers.id = vehicles.customer_id
 - customers.id = sales.customer_id
 - customers.id = services.customer_id
+- customers.id = insurance_policies.customer_id
 - vehicles.id = sales.vehicle_id
 - vehicles.id = services.vehicle_id
+- vehicles.id = insurance_policies.vehicle_id
 """
 RECOMMENDED_QUESTIONS = [
     "¿Cuántos clientes hay por estado?",
@@ -67,6 +70,10 @@ RECOMMENDED_QUESTIONS = [
     "¿Cuántos vehículos tiene cada cliente?",
     "¿Cuál es el total de servicios y monto por tipo de servicio?",
     "Clientes sin ventas pero con al menos un vehículo registrado.",
+    "¿Cuál es el tiempo promedio de recompra de mis clientes?",
+    "¿A qué clientes les puedo ofrecer un seguro hoy?",
+    "¿Cuál es la edad promedio de los clientes que compran?",
+    "¿Qué tipo de unidad compra más cada rango de edad y género?",
     "Ingresos por mes considerando ventas y servicios.",
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
@@ -76,11 +83,16 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "id", "type": "INTEGER", "example": "1"},
         {"field": "customer_code", "type": "TEXT", "example": "C00001"},
         {"field": "full_name", "type": "TEXT", "example": "Mariana Ramirez Martinez"},
+        {"field": "gender", "type": "TEXT", "example": "Mujer"},
+        {"field": "age", "type": "INTEGER", "example": "42"},
+        {"field": "birth_date", "type": "DATE/TEXT", "example": "1983-05-17"},
         {"field": "email", "type": "TEXT", "example": "cliente001@demo.local"},
         {"field": "phone", "type": "TEXT", "example": "5540643274"},
         {"field": "city", "type": "TEXT", "example": "Leon"},
         {"field": "state", "type": "TEXT", "example": "Guanajuato"},
         {"field": "segment", "type": "TEXT", "example": "Retail"},
+        {"field": "monthly_income", "type": "REAL", "example": "38500.00"},
+        {"field": "risk_profile", "type": "TEXT", "example": "medio"},
         {"field": "created_at", "type": "DATE/TEXT", "example": "2024-07-30"},
     ],
     "vehicles": [
@@ -90,6 +102,7 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "plate", "type": "TEXT", "example": "D1858NE"},
         {"field": "brand", "type": "TEXT", "example": "Nissan"},
         {"field": "model", "type": "TEXT", "example": "Versa"},
+        {"field": "unit_type", "type": "TEXT", "example": "SUV"},
         {"field": "year", "type": "INTEGER", "example": "2026"},
         {"field": "fuel_type", "type": "TEXT", "example": "Gasolina"},
         {"field": "mileage", "type": "INTEGER", "example": "138494"},
@@ -103,6 +116,7 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "amount", "type": "REAL", "example": "347758.40"},
         {"field": "channel", "type": "TEXT", "example": "Digital"},
         {"field": "seller", "type": "TEXT", "example": "Alberto Ruiz"},
+        {"field": "payment_method", "type": "TEXT", "example": "Financiamiento"},
         {"field": "status", "type": "TEXT", "example": "facturada"},
     ],
     "services": [
@@ -115,6 +129,19 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "status", "type": "TEXT", "example": "entregado"},
         {"field": "workshop", "type": "TEXT", "example": "Taller Sur"},
         {"field": "notes", "type": "TEXT", "example": "Generado para demo"},
+    ],
+    "insurance_policies": [
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_id", "type": "INTEGER", "example": "1"},
+        {"field": "vehicle_id", "type": "INTEGER", "example": "1"},
+        {"field": "policy_start_date", "type": "DATE/TEXT", "example": "2025-01-01"},
+        {"field": "policy_end_date", "type": "DATE/TEXT", "example": "2026-01-01"},
+        {"field": "insurer", "type": "TEXT", "example": "AXA"},
+        {"field": "coverage_type", "type": "TEXT", "example": "Amplia"},
+        {"field": "annual_premium", "type": "REAL", "example": "17350.20"},
+        {"field": "policy_status", "type": "TEXT", "example": "activa"},
+        {"field": "claim_count", "type": "INTEGER", "example": "0"},
+        {"field": "last_claim_date", "type": "DATE/TEXT", "example": "2025-09-18"},
     ],
 }
 
@@ -337,8 +364,10 @@ def _render_field_guide() -> None:
             "- customers.id = vehicles.customer_id\n"
             "- customers.id = sales.customer_id\n"
             "- customers.id = services.customer_id\n"
+            "- customers.id = insurance_policies.customer_id\n"
             "- vehicles.id = sales.vehicle_id\n"
-            "- vehicles.id = services.vehicle_id"
+            "- vehicles.id = services.vehicle_id\n"
+            "- vehicles.id = insurance_policies.vehicle_id"
         )
 
         st.markdown("**Tablas y campos (con tipo y ejemplo)**")
@@ -364,6 +393,10 @@ def _render_field_guide() -> None:
         st.markdown(
             "- Ventas totales por estado y mes.\n"
             "- Top 10 clientes por monto vendido.\n"
+            "- Tiempo promedio de recompra por cliente o segmento.\n"
+            "- Clientes sin póliza activa para ofrecer seguro.\n"
+            "- Edad promedio de clientes compradores.\n"
+            "- Tipo de unidad preferido por rango de edad y género.\n"
             "- Clientes con vehículo pero sin ventas.\n"
             "- Servicios por tipo y costo promedio.\n"
             "- Pronóstico de ventas por canal para 3 meses."
@@ -386,7 +419,8 @@ def main() -> None:
         f"{demo_info['customers']} clientes, "
         f"{demo_info['vehicles']} vehiculos, "
         f"{demo_info['sales']} ventas, "
-        f"{demo_info['services']} servicios."
+        f"{demo_info['services']} servicios, "
+        f"{demo_info['insurance_policies']} polizas."
     )
 
     # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
