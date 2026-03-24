@@ -351,11 +351,11 @@ def _format_time_value(days_value: Any) -> str:
     abs_days = abs(days)
     if abs_days > 365:
         years = days / 365.0
-        return f"{years:,.2f} años"
+        return f"{years:,.1f} años"
     if abs_days > 30:
         months = days / 30.0
-        return f"{months:,.2f} meses"
-    return f"{days:,.2f} días"
+        return f"{months:,.1f} meses"
+    return f"{days:,.1f} días"
 
 
 def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
