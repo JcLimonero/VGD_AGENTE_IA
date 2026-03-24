@@ -37,6 +37,7 @@ class SalesForecastResult:
     method_label: str
     horizon_months: int
     dimension: str
+    source_sql: str
     source_rows: int
     forecast_rows: list[dict[str, Any]]
     chart_rows: list[dict[str, Any]]
@@ -96,7 +97,8 @@ def compute_sales_forecast(
     if horizon_months <= 0:
         raise ValueError("El horizonte debe ser mayor a 0.")
 
-    rows = dwh_client.execute_select(_build_history_query(dimension))
+    source_sql = _build_history_query(dimension)
+    rows = dwh_client.execute_select(source_sql)
     if not rows:
         raise ValueError("No hay ventas históricas para calcular pronóstico.")
 
@@ -180,6 +182,7 @@ def compute_sales_forecast(
         method_label=FORECAST_METHODS[method],
         horizon_months=horizon_months,
         dimension=dimension,
+        source_sql=source_sql,
         source_rows=len(rows),
         forecast_rows=forecast_rows,
         chart_rows=chart_rows,

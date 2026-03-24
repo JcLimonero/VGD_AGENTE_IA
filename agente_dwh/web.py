@@ -107,12 +107,35 @@ def _build_agent(
     return DwhAgent(dwh_client=dwh, llm_client=llm, schema_hint=schema_hint)
 
 
+def _friendly_column_name(name: Any) -> str:
+    text = str(name).strip().replace("_", " ")
+    return " ".join(part.capitalize() for part in text.split())
+
+
+def _prettify_dataframe_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+    rename_map: dict[str, str] = {}
+    used_labels: set[str] = set()
+    for column in df.columns:
+        raw_name = str(column)
+        base_label = _friendly_column_name(raw_name) or raw_name
+        label = base_label
+        suffix = 2
+        while label in used_labels:
+            label = f"{base_label} ({suffix})"
+            suffix += 1
+        rename_map[raw_name] = label
+        used_labels.add(label)
+    return df.rename(columns=rename_map), rename_map
+
+
 def _render_rows(rows: list[dict[str, Any]]) -> None:
     if not rows:
         st.info("La consulta no regresó filas.")
         return
     st.success(f"Filas obtenidas: {len(rows)}")
-    st.dataframe(rows, use_container_width=True)
+    df = pd.DataFrame(rows)
+    pretty_df, _ = _prettify_dataframe_columns(df)
+    st.dataframe(pretty_df, use_container_width=True)
 
 
 def _render_chart_options(rows: list[dict[str, Any]]) -> None:
@@ -133,6 +156,7 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
     chart_type = st.selectbox("Tipo de gráfica", ["Barras", "Línea", "Área"], index=0)
 
     x_candidates = list(df.columns)
+    label_map = {col: _friendly_column_name(col) for col in x_candidates}
 
     # Evita errores cuando cambian las columnas entre consultas y el estado previo queda inválido.
     if "chart_x_col" not in st.session_state or st.session_state["chart_x_col"] not in x_candidates:
@@ -140,8 +164,18 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
     if "chart_y_col" not in st.session_state or st.session_state["chart_y_col"] not in numeric_cols:
         st.session_state["chart_y_col"] = numeric_cols[0]
 
-    x_col = st.selectbox("Columna eje X", x_candidates, key="chart_x_col")
-    y_col = st.selectbox("Columna eje Y (numérica)", numeric_cols, key="chart_y_col")
+    x_col = st.selectbox(
+        "Columna eje X",
+        x_candidates,
+        key="chart_x_col",
+        format_func=lambda value: label_map.get(value, str(value)),
+    )
+    y_col = st.selectbox(
+        "Columna eje Y (numérica)",
+        numeric_cols,
+        key="chart_y_col",
+        format_func=lambda value: label_map.get(value, str(value)),
+    )
 
     chart_df = df[[x_col, y_col]].copy()
     chart_df = chart_df.dropna()
@@ -185,7 +219,8 @@ def _render_forecast_result(result: Any) -> None:
         st.warning("No se pudo construir pronóstico con los datos actuales.")
     else:
         st.success(f"Filas de pronóstico: {len(forecast_df)}")
-        st.dataframe(forecast_df, use_container_width=True)
+        pretty_forecast_df, _ = _prettify_dataframe_columns(forecast_df)
+        st.dataframe(pretty_forecast_df, use_container_width=True)
 
     chart_df = pd.DataFrame(result.chart_rows)
     if not chart_df.empty:
