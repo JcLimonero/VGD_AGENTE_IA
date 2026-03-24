@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+from types import SimpleNamespace
 from typing import Any
 
 import streamlit as st
@@ -322,6 +323,39 @@ def _nearest_horizon_option(value: int) -> int:
     return min(options, key=lambda opt: abs(opt - value))
 
 
+def _is_repurchase_time_intent(question: str) -> bool:
+    text = (question or "").strip().lower()
+    has_repurchase = any(
+        token in text
+        for token in (
+            "recompra",
+            "volver a comprar",
+            "vuelve a comprar",
+            "cada cuanto compra",
+            "cada cuánto compra",
+        )
+    )
+    has_time = any(token in text for token in ("promedio", "tiempo", "dias", "días", "cada cuanto", "cada cuánto"))
+    return has_repurchase and has_time
+
+
+def _build_repurchase_time_sql() -> str:
+    # Definición de negocio: intervalo entre compras consecutivas por cliente.
+    return """
+WITH sale_gaps AS (
+    SELECT
+        s.customer_id,
+        julianday(s.sale_date)
+        - julianday(LAG(s.sale_date) OVER (PARTITION BY s.customer_id ORDER BY s.sale_date)) AS gap_days
+    FROM sales s
+    WHERE s.status IN ('completed', 'entregada', 'facturada', 'cerrada')
+)
+SELECT ROUND(AVG(gap_days), 2) AS avg_repurchase_days
+FROM sale_gaps
+WHERE gap_days IS NOT NULL;
+""".strip()
+
+
 def _prepare_new_result_view() -> None:
     """Resetea estado visual de resultados para una búsqueda nueva."""
     st.session_state.pop("chart_x_col", None)
@@ -624,6 +658,46 @@ def main() -> None:
     forecast_intent = is_forecast_intent(question.strip())
     if run and forecast_intent and not run_forecast:
         st.info("Se detectó intención de pronóstico; se usará el módulo de forecast en Python.")
+
+    repurchase_intent = _is_repurchase_time_intent(question.strip())
+    if run and repurchase_intent and not run_forecast:
+        st.info(
+            "Aplicando definición de negocio para recompra: "
+            "tiempo entre compras consecutivas por cliente."
+        )
+        with st.spinner("Procesando consulta..."):
+            try:
+                dwh = DwhClient.from_url(dwh_url.strip(), default_limit=int(max_rows))
+                repurchase_sql = _build_repurchase_time_sql()
+                rows = dwh.execute_select(repurchase_sql)
+                result = SimpleNamespace(
+                    question=question.strip(),
+                    generated_sql=repurchase_sql,
+                    rows=rows,
+                )
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc)
+                st.error(f"Error ejecutando consulta: {message}")
+                if "no pg_hba.conf entry" in message:
+                    client_ip = _extract_pg_hba_ip(message)
+                    st.warning(
+                        "PostgreSQL bloqueo esta conexion por reglas de red (pg_hba.conf). "
+                        "Debes autorizar la IP origen del servidor cloud."
+                    )
+                    if client_ip:
+                        st.code(
+                            "host    vgd_dwh_migration    postgres    "
+                            f"{client_ip}/32    scram-sha-256"
+                        )
+                if "no encryption" in message:
+                    st.info(
+                        "El servidor reporta conexion sin cifrado. Si tu instancia exige SSL, "
+                        "usa una URL DWH con sslmode=require y habilita SSL en PostgreSQL."
+                    )
+                return
+
+        _render_query_result(result, model_used="Regla de negocio: recompra consecutiva")
+        return
 
     if run_forecast or (run and forecast_intent):
         with st.spinner("Calculando pronóstico de ventas..."):
