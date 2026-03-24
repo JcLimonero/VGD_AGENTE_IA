@@ -20,6 +20,16 @@ Reglas obligatorias:
 6) Si la pregunta no se puede resolver con SQL, devuelve: SELECT 'No se puede resolver con SQL' AS mensaje;
 """
 
+SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
+Debes corregir una consulta SQL que falló al ejecutarse.
+
+Reglas obligatorias:
+1) Responde SOLO con SQL (sin markdown ni texto adicional).
+2) Mantén la intención original de la pregunta de negocio.
+3) Usa únicamente SQL de lectura (SELECT/CTE), sin operaciones de escritura.
+4) Corrige alias, columnas o joins inválidos según el error reportado.
+"""
+
 
 @dataclass
 class QueryResult:
@@ -47,10 +57,33 @@ class DwhAgent:
             "Devuelve solamente SQL válido para el motor del DWH."
         )
 
+    def _build_fix_prompt(self, question: str, previous_sql: str, execution_error: str) -> str:
+        schema_context = self._schema_hint or "No se proporcionó esquema."
+        return (
+            f"Esquema de referencia:\n{schema_context}\n\n"
+            f"Pregunta original:\n{question}\n\n"
+            f"SQL que falló:\n{previous_sql}\n\n"
+            f"Error de ejecución:\n{execution_error}\n\n"
+            "Devuelve SOLO una versión corregida del SQL."
+        )
+
     def answer(self, question: str) -> QueryResult:
         prompt = self._build_user_prompt(question)
         raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=SYSTEM_PROMPT)
         generated_sql = clean_sql_output(raw_output)
         validate_read_only_sql(generated_sql)
-        rows = self._dwh.execute_select(generated_sql)
-        return QueryResult(question=question, generated_sql=generated_sql, rows=rows)
+        try:
+            rows = self._dwh.execute_select(generated_sql)
+            return QueryResult(question=question, generated_sql=generated_sql, rows=rows)
+        except RuntimeError as first_exc:
+            # Reintento único: pedir al LLM una corrección basada en el error SQL.
+            fix_prompt = self._build_fix_prompt(
+                question=question,
+                previous_sql=generated_sql,
+                execution_error=str(first_exc),
+            )
+            fixed_raw = self._llm.generar_sql(prompt=fix_prompt, system_prompt=SQL_FIX_PROMPT)
+            fixed_sql = clean_sql_output(fixed_raw)
+            validate_read_only_sql(fixed_sql)
+            rows = self._dwh.execute_select(fixed_sql)
+            return QueryResult(question=question, generated_sql=fixed_sql, rows=rows)
