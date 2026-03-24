@@ -83,7 +83,8 @@ class DwhClient:
             flags=re.IGNORECASE,
         )
         normalized = self._rewrite_interval_arithmetic(normalized)
-        return self._rewrite_window_avg_misuse(normalized)
+        normalized = self._rewrite_window_avg_misuse(normalized)
+        return self._rewrite_sales_status_aliases(normalized)
 
     def _rewrite_interval_arithmetic(self, sql: str) -> str:
         """Convierte aritmética de intervalos estilo PostgreSQL a SQLite."""
@@ -152,3 +153,13 @@ class DwhClient:
         if limit_clause:
             rewritten += limit_clause
         return rewritten.strip()
+
+    def _rewrite_sales_status_aliases(self, sql: str) -> str:
+        """Mapea alias de estados comunes al catálogo real de la demo SQLite."""
+        # En la demo usamos estados: cerrada, facturada, entregada.
+        # El LLM a veces usa 'completed', por lo que lo mapeamos a 'entregada'.
+        return re.sub(
+            r"(?i)\bstatus\s*=\s*'completed'\b",
+            "status = 'entregada'",
+            sql,
+        )
