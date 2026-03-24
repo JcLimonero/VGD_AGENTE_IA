@@ -76,9 +76,34 @@ class DwhClient:
             sign = "+" if amount >= 0 else ""
             return f"date({date_expr}, '{sign}{amount} {modifier_unit}')"
 
-        return re.sub(
+        normalized = re.sub(
             r"DATEADD\s*\(\s*(?P<unit>day|month|year)\s*,\s*(?P<amount>-?\d+)\s*,\s*(?P<date_expr>[^)]+?)\s*\)",
             _replace_dateadd,
+            sql,
+            flags=re.IGNORECASE,
+        )
+        return self._rewrite_interval_arithmetic(normalized)
+
+    def _rewrite_interval_arithmetic(self, sql: str) -> str:
+        """Convierte aritmética de intervalos estilo PostgreSQL a SQLite."""
+
+        def _replace_with_sign(match: re.Match[str]) -> str:
+            func = match.group("func")
+            sign = match.group("sign")
+            amount = int(match.group("amount"))
+            unit = match.group("unit").lower()
+            unit_map = {"day": "days", "month": "months", "year": "years"}
+            modifier_unit = unit_map.get(unit, f"{unit}s")
+            signed_amount = amount if sign == "+" else -amount
+            sign_prefix = "+" if signed_amount >= 0 else ""
+            return f"{func}('now', '{sign_prefix}{signed_amount} {modifier_unit}')"
+
+        # Ejemplos:
+        # date('now') - interval '1 month' -> date('now', '-1 months')
+        # datetime('now') + interval '7 day' -> datetime('now', '+7 days')
+        return re.sub(
+            r"(?P<func>date|datetime)\s*\(\s*'now'\s*\)\s*(?P<sign>[+-])\s*interval\s*'(?P<amount>\d+)\s+(?P<unit>day|month|year)s?'",
+            _replace_with_sign,
             sql,
             flags=re.IGNORECASE,
         )
