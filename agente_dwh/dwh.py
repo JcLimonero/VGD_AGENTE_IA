@@ -82,7 +82,8 @@ class DwhClient:
             sql,
             flags=re.IGNORECASE,
         )
-        return self._rewrite_interval_arithmetic(normalized)
+        normalized = self._rewrite_interval_arithmetic(normalized)
+        return self._rewrite_window_avg_misuse(normalized)
 
     def _rewrite_interval_arithmetic(self, sql: str) -> str:
         """Convierte aritmética de intervalos estilo PostgreSQL a SQLite."""
@@ -106,4 +107,30 @@ class DwhClient:
             _replace_with_sign,
             sql,
             flags=re.IGNORECASE,
+        )
+
+    def _rewrite_window_avg_misuse(self, sql: str) -> str:
+        """Corrige patrón común inválido en SQLite: AVG(...LAG(...) OVER (...))."""
+        normalized = " ".join(sql.strip().split())
+        pattern = (
+            r"^SELECT\s+customer_id\s*,\s*"
+            r"AVG\(\s*julianday\(\s*sale_date\s*\)\s*-\s*LAG\(\s*julianday\(\s*sale_date\s*\)\s*\)\s*"
+            r"OVER\s*\(\s*PARTITION\s+BY\s+customer_id\s+ORDER\s+BY\s+sale_date\s*\)\s*\)\s*"
+            r"AS\s+avg_time_between_purchases\s+FROM\s+sales\s+GROUP\s+BY\s+customer_id\s+"
+            r"ORDER\s+BY\s+avg_time_between_purchases\s+DESC(?:\s+LIMIT\s+\d+)?;?$"
+        )
+        if not re.match(pattern, normalized, flags=re.IGNORECASE):
+            return sql
+
+        return (
+            "WITH sale_gaps AS ("
+            " SELECT customer_id, "
+            " julianday(sale_date) - julianday(LAG(sale_date) OVER (PARTITION BY customer_id ORDER BY sale_date)) AS gap_days "
+            " FROM sales"
+            ") "
+            "SELECT customer_id, ROUND(AVG(gap_days), 2) AS avg_time_between_purchases "
+            "FROM sale_gaps "
+            "WHERE gap_days IS NOT NULL "
+            "GROUP BY customer_id "
+            "ORDER BY avg_time_between_purchases DESC"
         )
