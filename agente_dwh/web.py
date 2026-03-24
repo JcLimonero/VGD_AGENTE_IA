@@ -244,6 +244,23 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         st.info("No hay columnas numéricas para graficar en este resultado.")
         return
 
+    # Cuando la consulta devuelve un único valor numérico (por ejemplo, un promedio),
+    # mostramos un KPI en vez de forzar una gráfica con ejes X/Y.
+    if len(df.columns) == 1 and len(numeric_cols) == 1:
+        value_col = numeric_cols[0]
+        numeric_series = pd.to_numeric(df[value_col], errors="coerce").dropna()
+        st.markdown("### Resultado numérico")
+        if numeric_series.empty:
+            st.info("La consulta devolvió un valor nulo (NULL).")
+        elif len(numeric_series) == 1:
+            st.metric(_friendly_column_name(value_col), f"{float(numeric_series.iloc[0]):,.2f}")
+        else:
+            kpi_df = numeric_series.reset_index(drop=True).to_frame(
+                name=_friendly_column_name(value_col)
+            )
+            st.line_chart(kpi_df, use_container_width=True)
+        return
+
     st.markdown("### Graficar resultados")
     chart_type = st.selectbox("Tipo de gráfica", ["Barras", "Línea", "Área"], index=0)
 
