@@ -207,6 +207,36 @@ def _nearest_horizon_option(value: int) -> int:
     return min(options, key=lambda opt: abs(opt - value))
 
 
+def _prepare_new_result_view() -> None:
+    """Resetea estado visual de resultados para una búsqueda nueva."""
+    st.session_state.pop("chart_x_col", None)
+    st.session_state.pop("chart_y_col", None)
+
+
+def _render_query_result(result: Any, model_used: str | None = None) -> None:
+    """Renderiza resultado SQL en paneles colapsables con gráfica primero."""
+    with st.expander("Gráfica", expanded=True):
+        _render_chart_options(result.rows)
+
+    with st.expander("SQL generado", expanded=False):
+        st.code(result.generated_sql, language="sql")
+        if model_used:
+            st.caption(f"Modelo usado: {model_used}")
+
+    with st.expander("Resultados", expanded=False):
+        _render_rows(result.rows)
+
+    with st.expander("Salida JSON", expanded=False):
+        payload: dict[str, Any] = {
+            "pregunta": result.question,
+            "sql": result.generated_sql,
+            "rows": result.rows,
+        }
+        if model_used:
+            payload["modelo_usado"] = model_used
+        st.json(payload)
+
+
 def _render_forecast_result(result: Any) -> None:
     st.subheader("Pronóstico de ventas")
     st.caption(
@@ -214,33 +244,39 @@ def _render_forecast_result(result: Any) -> None:
         f"Nivel: {FORECAST_DIMENSIONS.get(result.dimension, result.dimension)}"
     )
 
-    forecast_df = pd.DataFrame(result.forecast_rows)
-    if forecast_df.empty:
-        st.warning("No se pudo construir pronóstico con los datos actuales.")
-    else:
-        st.success(f"Filas de pronóstico: {len(forecast_df)}")
-        pretty_forecast_df, _ = _prettify_dataframe_columns(forecast_df)
-        st.dataframe(pretty_forecast_df, use_container_width=True)
+    with st.expander("Gráfica", expanded=True):
+        chart_df = pd.DataFrame(result.chart_rows)
+        if chart_df.empty:
+            st.info("No hay datos suficientes para construir la gráfica del pronóstico.")
+        else:
+            pivot = chart_df.pivot(index="period", columns="tipo", values="ventas").fillna(0)
+            pivot.index = pivot.index.astype(str)
+            st.line_chart(pivot, use_container_width=True)
 
-    chart_df = pd.DataFrame(result.chart_rows)
-    if not chart_df.empty:
-        pivot = chart_df.pivot(index="period", columns="tipo", values="ventas").fillna(0)
-        pivot.index = pivot.index.astype(str)
-        st.markdown("### Historial vs pronóstico")
-        st.line_chart(pivot, use_container_width=True)
+    with st.expander("SQL generado", expanded=False):
+        st.code(result.source_sql, language="sql")
 
-    st.subheader("Salida JSON")
-    st.json(
-        {
-            "metodo": result.method,
-            "metodo_label": result.method_label,
-            "horizonte_meses": result.horizon_months,
-            "dimension": result.dimension,
-            "dimension_label": FORECAST_DIMENSIONS.get(result.dimension, result.dimension),
-            "filas_historicas_fuente": result.source_rows,
-            "pronostico": result.forecast_rows,
-        }
-    )
+    with st.expander("Resultados", expanded=False):
+        forecast_df = pd.DataFrame(result.forecast_rows)
+        if forecast_df.empty:
+            st.warning("No se pudo construir pronóstico con los datos actuales.")
+        else:
+            st.success(f"Filas de pronóstico: {len(forecast_df)}")
+            pretty_forecast_df, _ = _prettify_dataframe_columns(forecast_df)
+            st.dataframe(pretty_forecast_df, use_container_width=True)
+
+    with st.expander("Salida JSON", expanded=False):
+        st.json(
+            {
+                "metodo": result.method,
+                "metodo_label": result.method_label,
+                "horizonte_meses": result.horizon_months,
+                "dimension": result.dimension,
+                "dimension_label": FORECAST_DIMENSIONS.get(result.dimension, result.dimension),
+                "filas_historicas_fuente": result.source_rows,
+                "pronostico": result.forecast_rows,
+            }
+        )
 
 
 def main() -> None:
@@ -360,6 +396,7 @@ def main() -> None:
         st.error("Debes escribir una pregunta.")
         return
 
+    _prepare_new_result_view()
     schema_hint = _read_schema_hint(schema_hint_file) or DEFAULT_SCHEMA_HINT
 
     forecast_intent = is_forecast_intent(question.strip())
@@ -441,20 +478,7 @@ def main() -> None:
                         )
                         result = fallback_agent.answer(question.strip())
                         st.success(f"Consulta recuperada usando fallback: {FALLBACK_LLM_MODEL}")
-                        st.subheader("SQL generado")
-                        st.code(result.generated_sql, language="sql")
-                        st.subheader("Resultados")
-                        _render_rows(result.rows)
-                        _render_chart_options(result.rows)
-                        st.subheader("Salida JSON")
-                        st.json(
-                            {
-                                "pregunta": result.question,
-                                "sql": result.generated_sql,
-                                "rows": result.rows,
-                                "modelo_usado": FALLBACK_LLM_MODEL,
-                            }
-                        )
+                        _render_query_result(result, model_used=FALLBACK_LLM_MODEL)
                         return
                     except Exception as fallback_exc:  # noqa: BLE001
                         st.error(f"Fallback falló: {fallback_exc}")
@@ -480,21 +504,7 @@ def main() -> None:
                 )
             return
 
-    st.subheader("SQL generado")
-    st.code(result.generated_sql, language="sql")
-
-    st.subheader("Resultados")
-    _render_rows(result.rows)
-    _render_chart_options(result.rows)
-
-    st.subheader("Salida JSON")
-    st.json(
-        {
-            "pregunta": result.question,
-            "sql": result.generated_sql,
-            "rows": result.rows,
-        }
-    )
+    _render_query_result(result)
 
 
 if __name__ == "__main__":
