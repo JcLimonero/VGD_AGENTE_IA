@@ -147,18 +147,21 @@ def main() -> None:
             step=5,
         )
 
+    default_question = "¿Cuántos clientes hay por estado?"
+    if "question_input" not in st.session_state:
+        st.session_state["question_input"] = default_question
+
     st.markdown("### Preguntas recomendadas")
-    selected_question = ""
     rec_cols = st.columns(2)
     for idx, recommended in enumerate(RECOMMENDED_QUESTIONS):
         if rec_cols[idx % 2].button(recommended, key=f"q_rec_{idx}", use_container_width=True):
-            selected_question = recommended
+            st.session_state["question_input"] = recommended
 
     col1, col2 = st.columns([2, 1])
     with col1:
         question = st.text_area(
             "Pregunta de negocio",
-            value=selected_question or "¿Cuántos clientes hay por estado?",
+            key="question_input",
             height=110,
             placeholder="Ejemplo: Top 20 agencias por número de clientes consolidados.",
         )
