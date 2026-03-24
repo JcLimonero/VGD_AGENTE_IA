@@ -109,6 +109,9 @@ Preguntas de negocio que soporta este demo:
 - Citas agendadas de servicio por estatus (completada/programada/no_show/cancelada).
 - Tasa de no show por estado, canal o asesor.
 - Citas programadas para los próximos 7/30 días.
+- Top no show por taller y asesor.
+- Cancelaciones por motivo y por taller.
+- Conversión de citas programadas a completadas por mes.
 - Tiempo promedio de recompra por cliente (diferencia entre compras consecutivas en sales.sale_date).
 - Edad promedio de compradores y analisis por gender.
 - Tipo de unidad recomendado por rango de edad y genero (vehicles.unit_type + customers.age/gender).

@@ -81,6 +81,10 @@ RECOMMENDED_QUESTIONS = [
     "¿Qué tipo de unidad compra más cada rango de edad y género?",
     "¿Cuántas citas de servicio hay por estatus este mes?",
     "¿Cuál es el porcentaje de no show en citas de servicio por taller?",
+    "Top 10 asesores con más no show en citas de servicio.",
+    "¿Cuál es la tasa de no show semanal de los últimos 3 meses?",
+    "¿Cuáles son los motivos de cancelación más frecuentes en citas de servicio?",
+    "¿Cuál es la conversión de citas programadas a completadas por taller?",
     "Ingresos por mes considerando ventas y servicios.",
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
@@ -93,6 +97,10 @@ DEMO_COMMERCIAL_QUESTIONS = [
     "¿Qué porcentaje de clientes tiene póliza activa, vencida o sin póliza?",
     "¿Qué clientes tienen póliza por vencer en los próximos 60 días?",
     "¿Qué asesores tienen más citas canceladas o no show?",
+    "Top 10 asesores con más no show en citas de servicio.",
+    "¿Cuál es la tasa de no show semanal de los últimos 3 meses?",
+    "¿Cuáles son los motivos de cancelación más frecuentes en citas de servicio?",
+    "¿Cuál es la conversión de citas programadas a completadas por taller?",
 ]
 
 GENERAL_REFERENCE_QUESTIONS = [
