@@ -28,7 +28,7 @@ except ImportError:
 DEMO_DB_PATH = "/tmp/agente_dwh_demo.db"
 DEFAULT_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH}"
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
+DEFAULT_LLM_MODEL = "qwen2.5:14b"
 DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - customers(id, customer_code, full_name, email, phone, city, state, segment, created_at)
 - vehicles(id, customer_id, vin, plate, brand, model, year, fuel_type, mileage, created_at)
@@ -170,7 +170,7 @@ def main() -> None:
     llm_endpoint = os.getenv("LLM_ENDPOINT", DEFAULT_LLM_ENDPOINT)
     llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     max_rows = _env_int("MAX_ROWS", 200)
-    llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 60)
+    llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 180)
     schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "")
 
     with st.expander("Opciones avanzadas (LLM y limites)", expanded=False):
