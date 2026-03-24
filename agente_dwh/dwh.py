@@ -157,9 +157,10 @@ class DwhClient:
     def _rewrite_sales_status_aliases(self, sql: str) -> str:
         """Mapea alias de estados comunes al catálogo real de la demo SQLite."""
         # En la demo usamos estados: cerrada, facturada, entregada.
-        # El LLM a veces usa 'completed', por lo que lo mapeamos a 'entregada'.
+        # El LLM a veces usa 'completed'; aquí lo ampliamos a todos los estados
+        # equivalentes para no perder filas en consultas de recompra.
         return re.sub(
-            r"(?i)\bstatus\s*=\s*'completed'\b",
-            "status = 'entregada'",
+            r"(?i)(?P<prefix>\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?status)\s*=\s*'completed'",
+            r"\g<prefix> IN ('completed', 'entregada', 'facturada', 'cerrada')",
             sql,
         )
