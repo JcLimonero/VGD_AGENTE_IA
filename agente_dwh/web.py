@@ -906,7 +906,6 @@ def main() -> None:
             placeholder="Ejemplo: Top 20 agencias por número de clientes consolidados.",
         )
     with col2:
-        st.markdown("### Ejecutar")
         run = st.button("Consultar", type="primary", use_container_width=True)
 
     if not run:
