@@ -71,6 +71,52 @@ RECOMMENDED_QUESTIONS = [
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
 ]
+FIELD_GUIDE: dict[str, list[str]] = {
+    "customers": [
+        "id",
+        "customer_code",
+        "full_name",
+        "email",
+        "phone",
+        "city",
+        "state",
+        "segment",
+        "created_at",
+    ],
+    "vehicles": [
+        "id",
+        "customer_id",
+        "vin",
+        "plate",
+        "brand",
+        "model",
+        "year",
+        "fuel_type",
+        "mileage",
+        "created_at",
+    ],
+    "sales": [
+        "id",
+        "customer_id",
+        "vehicle_id",
+        "sale_date",
+        "amount",
+        "channel",
+        "seller",
+        "status",
+    ],
+    "services": [
+        "id",
+        "customer_id",
+        "vehicle_id",
+        "service_date",
+        "service_type",
+        "cost",
+        "status",
+        "workshop",
+        "notes",
+    ],
+}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -279,6 +325,37 @@ def _render_forecast_result(result: Any) -> None:
         )
 
 
+def _render_field_guide() -> None:
+    """Muestra tablas y campos disponibles para orientar preguntas."""
+    with st.expander("Guía de campos disponibles", expanded=False):
+        st.markdown(
+            "Usa esta guía para saber qué puedes preguntar. "
+            "Puedes combinar tablas usando sus relaciones."
+        )
+        st.markdown("**Relaciones principales**")
+        st.markdown(
+            "- customers.id = vehicles.customer_id\n"
+            "- customers.id = sales.customer_id\n"
+            "- customers.id = services.customer_id\n"
+            "- vehicles.id = sales.vehicle_id\n"
+            "- vehicles.id = services.vehicle_id"
+        )
+
+        st.markdown("**Tablas y campos**")
+        for table_name, fields in FIELD_GUIDE.items():
+            pretty_fields = ", ".join(_friendly_column_name(field) for field in fields)
+            st.write(f"- **{table_name}**: {pretty_fields}")
+
+        st.markdown("**Ejemplos de preguntas útiles**")
+        st.markdown(
+            "- Ventas totales por estado y mes.\n"
+            "- Top 10 clientes por monto vendido.\n"
+            "- Clientes con vehículo pero sin ventas.\n"
+            "- Servicios por tipo y costo promedio.\n"
+            "- Pronóstico de ventas por canal para 3 meses."
+        )
+
+
 def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
@@ -287,6 +364,7 @@ def main() -> None:
         "de clientes, vehículos, ventas y servicios."
     )
     st.info("Modo demo: solo escribe tu pregunta y presiona Consultar.")
+    _render_field_guide()
 
     demo_info = ensure_demo_db(DEMO_DB_PATH)
     st.success(
