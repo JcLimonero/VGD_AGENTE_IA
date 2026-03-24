@@ -18,6 +18,7 @@ Reglas obligatorias:
 4) No uses UPDATE, INSERT, DELETE, DROP, ALTER, CREATE, TRUNCATE, MERGE, GRANT, REVOKE, CALL o EXEC.
 5) Limita resultados a un máximo de 1000 filas cuando aplique.
 6) Si la pregunta no se puede resolver con SQL, devuelve: SELECT 'No se puede resolver con SQL' AS mensaje;
+7) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -28,6 +29,7 @@ Reglas obligatorias:
 2) Mantén la intención original de la pregunta de negocio.
 3) Usa únicamente SQL de lectura (SELECT/CTE), sin operaciones de escritura.
 4) Corrige alias, columnas o joins inválidos según el error reportado.
+5) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
 """
 
 
@@ -49,9 +51,32 @@ class DwhAgent:
         self._llm = llm_client
         self._schema_hint = schema_hint.strip()
 
+    def _dialect_guidance(self) -> str:
+        dialect = self._dwh.dialect_name
+        if dialect == "sqlite":
+            return (
+                "Motor SQL objetivo: SQLite.\n"
+                "Reglas de dialecto SQLite:\n"
+                "- NO uses DATEADD, DATEDIFF ni funciones exclusivas de SQL Server.\n"
+                "- Para fechas usa date()/datetime()/strftime() de SQLite.\n"
+                "- Usa CURRENT_DATE, CURRENT_TIMESTAMP o date('now') según convenga.\n"
+                "- Operadores válidos: <=, >=, != (evita símbolos unicode como ≤, ≥, ≠).\n"
+            )
+        if dialect == "postgresql":
+            return (
+                "Motor SQL objetivo: PostgreSQL.\n"
+                "Reglas de dialecto PostgreSQL:\n"
+                "- Para fechas usa intervalos (por ejemplo: fecha + INTERVAL '1 month').\n"
+                "- Evita funciones exclusivas de SQL Server como DATEADD.\n"
+            )
+        if dialect:
+            return f"Motor SQL objetivo: {dialect}.\nRespeta estrictamente este dialecto.\n"
+        return "Motor SQL objetivo no identificado. Usa SQL ANSI estándar cuando sea posible.\n"
+
     def _build_user_prompt(self, question: str) -> str:
         schema_context = self._schema_hint or "No se proporcionó esquema."
         return (
+            f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
             f"Pregunta de negocio:\n{question}\n\n"
             "Devuelve solamente SQL válido para el motor del DWH."
@@ -60,6 +85,7 @@ class DwhAgent:
     def _build_fix_prompt(self, question: str, previous_sql: str, execution_error: str) -> str:
         schema_context = self._schema_hint or "No se proporcionó esquema."
         return (
+            f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
             f"Pregunta original:\n{question}\n\n"
             f"SQL que falló:\n{previous_sql}\n\n"
