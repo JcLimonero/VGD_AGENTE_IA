@@ -440,14 +440,23 @@ def _render_sidebar_controls(
         st.markdown("## Panel lateral")
 
         with st.expander("Preguntas de referencia", expanded=False):
-            st.caption("Solo referencia para ideas de consulta.")
-            st.markdown("**Generales**")
-            for question in RECOMMENDED_QUESTIONS:
-                st.markdown(f"- {question}")
-
-            st.markdown("**Demo comercial**")
-            for question in DEMO_COMMERCIAL_QUESTIONS:
-                st.markdown(f"- {question}")
+            st.caption("Selecciona una y se copiará al input de consulta.")
+            current_question = st.session_state.get("question_input", "")
+            all_reference_questions = RECOMMENDED_QUESTIONS + DEMO_COMMERCIAL_QUESTIONS
+            unique_reference_questions = list(dict.fromkeys(all_reference_questions))
+            if current_question and current_question not in unique_reference_questions:
+                unique_reference_questions = [current_question] + unique_reference_questions
+            selected_reference = st.selectbox(
+                "Elegir pregunta de referencia",
+                unique_reference_questions,
+                index=unique_reference_questions.index(current_question)
+                if current_question in unique_reference_questions
+                else 0,
+                key="reference_question_selector",
+            )
+            if st.button("Usar esta pregunta", use_container_width=True, key="use_reference_question"):
+                st.session_state["question_input"] = selected_reference
+                st.rerun()
 
         default_horizon = _nearest_horizon_option(
             extract_horizon_from_question(st.session_state.get("question_input", ""), default=3)
