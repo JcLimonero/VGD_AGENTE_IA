@@ -165,13 +165,24 @@ SPANISH_VALUE_LABELS: dict[str, str] = {
     # Método de pago
     "contado": "Contado",
     "financiamiento": "Financiamiento",
-    "leasing": "Leasing",
+    "leasing": "Arrendamiento",
     # Canal
     "digital": "Digital",
-    "showroom": "Showroom",
+    "showroom": "Sala de ventas",
     "referido": "Referido",
     "flotillas": "Flotillas",
+    # Tipo de unidad
+    "suv": "SUV",
+    "sedan": "Sedán",
+    "hatchback": "Hatchback",
+    "deportivo": "Deportivo",
+    "van": "Van",
+    "pickup": "Pickup",
+    # Género
+    "mujer": "Mujer",
+    "hombre": "Hombre",
 }
+MXN_COLUMNS = {"monthly_income", "amount", "cost", "annual_premium"}
 FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -316,12 +327,33 @@ def _translate_dataframe_values(df: pd.DataFrame) -> pd.DataFrame:
     return translated
 
 
+def _format_mxn_value(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"${number:,.2f} MXN"
+
+
+def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
+    formatted = df.copy()
+    for column in formatted.columns:
+        if str(column).lower() in MXN_COLUMNS:
+            numeric_series = pd.to_numeric(formatted[column], errors="coerce")
+            formatted[column] = [
+                _format_mxn_value(val) if pd.notna(num) else val
+                for val, num in zip(formatted[column], numeric_series)
+            ]
+    return formatted
+
+
 def _render_rows(rows: list[dict[str, Any]]) -> None:
     if not rows:
         st.info("La consulta no regresó filas.")
         return
     st.success(f"Filas obtenidas: {len(rows)}")
     df = _translate_dataframe_values(pd.DataFrame(rows))
+    df = _format_mxn_columns(df)
     pretty_df, _ = _prettify_dataframe_columns(df)
     st.dataframe(pretty_df, use_container_width=True)
 
@@ -346,10 +378,16 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         value_col = numeric_cols[0]
         numeric_series = pd.to_numeric(df[value_col], errors="coerce").dropna()
         st.markdown("### Resultado numérico")
+        value_col_lower = str(value_col).lower()
         if numeric_series.empty:
             st.info("La consulta devolvió un valor nulo (NULL).")
         elif len(numeric_series) == 1:
-            st.metric(_friendly_column_name(value_col), f"{float(numeric_series.iloc[0]):,.2f}")
+            metric_value = (
+                _format_mxn_value(numeric_series.iloc[0])
+                if value_col_lower in MXN_COLUMNS
+                else f"{float(numeric_series.iloc[0]):,.2f}"
+            )
+            st.metric(_friendly_column_name(value_col), metric_value)
         else:
             kpi_df = numeric_series.reset_index(drop=True).to_frame(
                 name=_friendly_column_name(value_col)
