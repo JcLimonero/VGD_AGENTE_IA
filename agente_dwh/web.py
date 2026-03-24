@@ -28,7 +28,8 @@ except ImportError:
 DEMO_DB_PATH = "/tmp/agente_dwh_demo.db"
 DEFAULT_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH}"
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
-DEFAULT_LLM_MODEL = "qwen2.5:14b"
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
+FALLBACK_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - customers(id, customer_code, full_name, email, phone, city, state, segment, created_at)
 - vehicles(id, customer_id, vin, plate, brand, model, year, fuel_type, mileage, created_at)
@@ -250,6 +251,44 @@ def main() -> None:
                     "Si tu Ollama corre en tu laptop, debes exponerlo por una URL publica "
                     "(por ejemplo, tunel) y usarla en LLM_ENDPOINT."
                 )
+            if "HTTP 500" in message or "Internal Server Error" in message:
+                st.warning(
+                    "Ollama respondió con error interno (HTTP 500), normalmente por falta de memoria "
+                    "o saturación del modelo. Se recomienda usar un modelo más liviano."
+                )
+                if llm_model != FALLBACK_LLM_MODEL:
+                    st.info(
+                        f"Sugerencia: cambiar LLM_MODEL a {FALLBACK_LLM_MODEL}. "
+                        "Aplicando fallback automático para esta consulta..."
+                    )
+                    try:
+                        fallback_agent = _build_agent(
+                            dwh_url=dwh_url.strip(),
+                            llm_endpoint=llm_endpoint.strip(),
+                            llm_model=FALLBACK_LLM_MODEL,
+                            row_limit=int(max_rows),
+                            llm_timeout_seconds=int(llm_timeout),
+                            schema_hint=schema_hint,
+                        )
+                        result = fallback_agent.answer(question.strip())
+                        st.success(f"Consulta recuperada usando fallback: {FALLBACK_LLM_MODEL}")
+                        st.subheader("SQL generado")
+                        st.code(result.generated_sql, language="sql")
+                        st.subheader("Resultados")
+                        _render_rows(result.rows)
+                        _render_chart_options(result.rows)
+                        st.subheader("Salida JSON")
+                        st.json(
+                            {
+                                "pregunta": result.question,
+                                "sql": result.generated_sql,
+                                "rows": result.rows,
+                                "modelo_usado": FALLBACK_LLM_MODEL,
+                            }
+                        )
+                        return
+                    except Exception as fallback_exc:  # noqa: BLE001
+                        st.error(f"Fallback falló: {fallback_exc}")
             if "no pg_hba.conf entry" in message:
                 client_ip = _extract_pg_hba_ip(message)
                 st.warning(

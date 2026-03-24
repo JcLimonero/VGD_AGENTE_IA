@@ -31,7 +31,7 @@ class Config:
             )
 
         llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434").strip()
-        llm_model = os.getenv("LLM_MODEL", "qwen2.5:14b").strip()
+        llm_model = os.getenv("LLM_MODEL", "qwen2.5:7b").strip()
         max_rows_raw = os.getenv("MAX_ROWS", "200").strip()
         timeout_raw = os.getenv("LLM_TIMEOUT_SECONDS", "180").strip()
         schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "").strip()

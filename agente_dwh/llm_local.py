@@ -39,6 +39,16 @@ class LocalOllamaClient:
         try:
             with request.urlopen(req, timeout=self._timeout_seconds) as resp:
                 body = resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:  # noqa: BLE001
+                detail = ""
+            raise LLMError(
+                f"Ollama respondió HTTP {exc.code} en {endpoint}. "
+                f"Detalle: {detail or str(exc)}"
+            ) from exc
         except error.URLError as exc:
             raise LLMError(f"No se pudo contactar Ollama en {endpoint}: {exc}") from exc
 
