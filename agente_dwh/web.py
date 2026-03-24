@@ -147,6 +147,31 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "avg_days_between_purchases": "Días Promedio Entre Compras",
     "avg_rebuy_time": "Días Promedio Recompra",
 }
+SPANISH_VALUE_LABELS: dict[str, str] = {
+    # Estatus de venta/servicio/póliza
+    "completed": "Completado",
+    "cerrada": "Cerrada",
+    "facturada": "Facturada",
+    "entregada": "Entregada",
+    "completado": "Completado",
+    "activa": "Activa",
+    "vencida": "Vencida",
+    "cancelada": "Cancelada",
+    "sin_poliza": "Sin Póliza",
+    # Riesgo
+    "alto": "Alto",
+    "medio": "Medio",
+    "bajo": "Bajo",
+    # Método de pago
+    "contado": "Contado",
+    "financiamiento": "Financiamiento",
+    "leasing": "Leasing",
+    # Canal
+    "digital": "Digital",
+    "showroom": "Showroom",
+    "referido": "Referido",
+    "flotillas": "Flotillas",
+}
 FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
     "customers": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -274,12 +299,29 @@ def _prettify_dataframe_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[st
     return df.rename(columns=rename_map), rename_map
 
 
+def _translate_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    key = value.strip().lower()
+    return SPANISH_VALUE_LABELS.get(key, value)
+
+
+def _translate_dataframe_values(df: pd.DataFrame) -> pd.DataFrame:
+    translated = df.copy()
+    for column in translated.columns:
+        if pd.api.types.is_object_dtype(translated[column]) or pd.api.types.is_string_dtype(
+            translated[column]
+        ):
+            translated[column] = translated[column].map(_translate_value)
+    return translated
+
+
 def _render_rows(rows: list[dict[str, Any]]) -> None:
     if not rows:
         st.info("La consulta no regresó filas.")
         return
     st.success(f"Filas obtenidas: {len(rows)}")
-    df = pd.DataFrame(rows)
+    df = _translate_dataframe_values(pd.DataFrame(rows))
     pretty_df, _ = _prettify_dataframe_columns(df)
     st.dataframe(pretty_df, use_container_width=True)
 
@@ -289,7 +331,7 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
 
-    df = pd.DataFrame(rows)
+    df = _translate_dataframe_values(pd.DataFrame(rows))
     if df.empty:
         return
 
