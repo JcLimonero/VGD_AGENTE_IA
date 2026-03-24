@@ -262,9 +262,15 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         key="chart_x_col",
         format_func=lambda value: label_map.get(value, str(value)),
     )
+    y_candidates = [col for col in numeric_cols if col != x_col]
+    if not y_candidates:
+        st.info("No hay una segunda columna numérica disponible para eje Y.")
+        return
+    if "chart_y_col" not in st.session_state or st.session_state["chart_y_col"] not in y_candidates:
+        st.session_state["chart_y_col"] = y_candidates[0]
     y_col = st.selectbox(
         "Columna eje Y (numérica)",
-        numeric_cols,
+        y_candidates,
         key="chart_y_col",
         format_func=lambda value: label_map.get(value, str(value)),
     )
