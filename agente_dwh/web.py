@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import streamlit as st
+import pandas as pd
 
 try:
     from .agent import DwhAgent
@@ -91,6 +92,45 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
         return
     st.success(f"Filas obtenidas: {len(rows)}")
     st.dataframe(rows, use_container_width=True)
+
+
+def _render_chart_options(rows: list[dict[str, Any]]) -> None:
+    """Permite graficar resultados tabulares cuando hay columnas útiles."""
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return
+
+    numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+    if not numeric_cols:
+        st.info("No hay columnas numéricas para graficar en este resultado.")
+        return
+
+    st.markdown("### Graficar resultados")
+    chart_type = st.selectbox("Tipo de gráfica", ["Barras", "Línea", "Área"], index=0)
+
+    x_candidates = list(df.columns)
+    x_col = st.selectbox("Columna eje X", x_candidates, index=0)
+    y_col = st.selectbox("Columna eje Y (numérica)", numeric_cols, index=0)
+
+    chart_df = df[[x_col, y_col]].copy()
+    chart_df = chart_df.dropna()
+    if chart_df.empty:
+        st.info("No hay datos válidos para construir la gráfica.")
+        return
+
+    # index de texto para categorías y fechas convertibles
+    chart_df[x_col] = chart_df[x_col].astype(str)
+    chart_df = chart_df.set_index(x_col)
+
+    if chart_type == "Barras":
+        st.bar_chart(chart_df, y=y_col, use_container_width=True)
+    elif chart_type == "Línea":
+        st.line_chart(chart_df, y=y_col, use_container_width=True)
+    else:
+        st.area_chart(chart_df, y=y_col, use_container_width=True)
 
 
 def _extract_pg_hba_ip(error_message: str) -> str:
@@ -229,6 +269,7 @@ def main() -> None:
 
     st.subheader("Resultados")
     _render_rows(result.rows)
+    _render_chart_options(result.rows)
 
     st.subheader("Salida JSON")
     st.json(
