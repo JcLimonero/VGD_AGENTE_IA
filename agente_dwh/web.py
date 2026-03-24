@@ -831,10 +831,6 @@ def _render_sidebar_controls(
 def main() -> None:
     st.set_page_config(page_title="Agente IA DWH", page_icon="🧠", layout="wide")
     st.title("Agente IA para DWH (LLM local)")
-    st.caption(
-        "Convierte una pregunta de negocio en SQL y ejecuta la consulta en una base demo "
-        "de clientes, vehículos, ventas y servicios."
-    )
     st.info("Modo demo: solo escribe tu pregunta y presiona Consultar.")
     _render_field_guide()
 
