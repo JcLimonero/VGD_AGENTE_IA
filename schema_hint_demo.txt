@@ -107,9 +107,9 @@ Relaciones clave:
 
 Preguntas de negocio que soporta este demo:
 - Citas agendadas de servicio por estatus (completada/programada/no_show/cancelada).
-- Tasa de no show por estado, canal o asesor.
+- Tasa de no show por estado, canal o taller.
 - Citas programadas para los próximos 7/30 días.
-- Top no show por taller y asesor.
+- Top no show por taller.
 - Cancelaciones por motivo y por taller.
 - Conversión de citas programadas a completadas por mes.
 - Tiempo promedio de recompra por cliente (diferencia entre compras consecutivas en sales.sale_date).
@@ -124,6 +124,6 @@ Buenas practicas:
 - Para recompra, usar ventanas (LAG) en sales por customer_id y calcular dias entre compras.
 - Para recomendacion por rango de edad, agrupar por buckets de age y unit_type.
 - Para seguro, combinar customers + vehicles + insurance_policies filtrando por policy_status y fechas.
-- Para agenda de servicio, usar service_appointments y filtrar por status/scheduled_date.
+- Para agenda de servicio, usar service_appointments y filtrar por appointment_status/appointment_date.
 - Para pronósticos y tendencias mensuales, preferir mv_sales_monthly en lugar de recalcular desde sales.
 - Para recompra y ciclo de vida por cliente, preferir mv_customer_lifecycle.

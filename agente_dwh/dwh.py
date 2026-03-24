@@ -170,7 +170,7 @@ class DwhClient:
         )
         normalized = self._rewrite_interval_arithmetic(normalized)
         normalized = self._rewrite_window_avg_misuse(normalized)
-        normalized = self._rewrite_service_appointments_status_aliases(normalized)
+        normalized = self._rewrite_service_appointments_aliases(normalized)
         return self._rewrite_sales_status_aliases(normalized)
 
     def _rewrite_interval_arithmetic(self, sql: str) -> str:
@@ -252,48 +252,52 @@ class DwhClient:
             sql,
         )
 
-    def _rewrite_service_appointments_status_aliases(self, sql: str) -> str:
+    def _rewrite_service_appointments_aliases(self, sql: str) -> str:
         """
-        Corrige SQL generado para agenda de servicio cuando usa columna status.
+        Corrige SQL generado para agenda de servicio con aliases comunes.
 
-        En service_appointments la columna real es appointment_status.
-        El LLM puede generar `status` por consistencia con otras tablas.
+        En service_appointments las columnas reales son appointment_status y
+        appointment_date. El LLM puede generar `status`, `scheduled_date` o
+        `appointment_time` por consistencia con otros esquemas. También mapea
+        `advisor` a `workshop` en este dataset demo.
         """
         lowered = sql.lower()
         if "service_appointments" not in lowered:
             return sql
 
-        normalized = re.sub(
-            r"(?i)(\bservice_appointments\s*\.\s*)status\b",
-            r"\1appointment_status",
-            sql,
-        )
-        normalized = re.sub(
-            r"(?i)(\b(?:from|join)\s+service_appointments(?:\s+as)?\s+)([A-Za-z_][A-Za-z0-9_]*)",
-            r"\1\2",
-            normalized,
-        )
-        alias_matches = re.findall(
-            r"(?i)\b(?:from|join)\s+service_appointments(?:\s+as)?\s+([A-Za-z_][A-Za-z0-9_]*)",
-            normalized,
-        )
-        for alias in alias_matches:
-            normalized = re.sub(
-                rf"(?i)(\b{re.escape(alias)}\s*\.\s*)status\b",
-                rf"\1appointment_status",
-                normalized,
+        def _replace_prefixed(column: str, real_column: str, source_sql: str) -> str:
+            updated = re.sub(
+                rf"(?i)(\bservice_appointments\s*\.\s*){column}\b",
+                rf"\1{real_column}",
+                source_sql,
             )
+            alias_matches = re.findall(
+                r"(?i)\b(?:from|join)\s+service_appointments(?:\s+as)?\s+([A-Za-z_][A-Za-z0-9_]*)",
+                updated,
+            )
+            for alias in alias_matches:
+                updated = re.sub(
+                    rf"(?i)(\b{re.escape(alias)}\s*\.\s*){column}\b",
+                    rf"\1{real_column}",
+                    updated,
+                )
+            return updated
 
-        if re.search(r"(?i)\bappointment_status\b", normalized):
-            normalized = re.sub(r"(?i)\bstatus\b", "appointment_status", normalized)
-            return normalized
+        normalized = _replace_prefixed("status", "appointment_status", sql)
+        normalized = _replace_prefixed("scheduled_date", "appointment_date", normalized)
+        normalized = _replace_prefixed("appointment_time", "appointment_date", normalized)
+        normalized = _replace_prefixed("advisor", "workshop", normalized)
 
-        # Si la consulta usa service_appointments sin alias explícito y no mezcla
-        # otras tablas con columna status, reemplazamos status sin prefijo.
         has_other_status_tables = re.search(
             r"(?i)\b(?:from|join)\s+(sales|services)\b",
             normalized,
         )
         if not has_other_status_tables:
-            normalized = re.sub(r"(?i)\bstatus\b", "appointment_status", normalized)
+            # Solo reemplaza status/scheduled_date sin prefijo (no toca s.status).
+            normalized = re.sub(r"(?i)(?<!\.)\bstatus\b", "appointment_status", normalized)
+            normalized = re.sub(r"(?i)(?<!\.)\bscheduled_date\b", "appointment_date", normalized)
+            normalized = re.sub(r"(?i)(?<!\.)\bappointment_time\b", "appointment_date", normalized)
+            normalized = re.sub(r"(?i)(?<!\.)\badvisor\b", "workshop", normalized)
+
         return normalized
+
