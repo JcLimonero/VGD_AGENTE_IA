@@ -55,15 +55,18 @@ DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - vehicles(id, customer_id, vin, plate, brand, model, unit_type, year, fuel_type, mileage, created_at)
 - sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, payment_method, status)
 - services(id, customer_id, vehicle_id, service_date, service_type, cost, status, workshop, notes)
+- service_appointments(id, customer_id, vehicle_id, appointment_date, scheduled_start, scheduled_end, service_type, status, advisor, workshop, estimated_cost, created_at, notes)
 - insurance_policies(id, customer_id, vehicle_id, policy_start_date, policy_end_date, insurer, coverage_type, annual_premium, policy_status, claim_count, last_claim_date)
 
 Relaciones:
 - customers.id = vehicles.customer_id
 - customers.id = sales.customer_id
 - customers.id = services.customer_id
+- customers.id = service_appointments.customer_id
 - customers.id = insurance_policies.customer_id
 - vehicles.id = sales.vehicle_id
 - vehicles.id = services.vehicle_id
+- vehicles.id = service_appointments.vehicle_id
 - vehicles.id = insurance_policies.vehicle_id
 """
 RECOMMENDED_QUESTIONS = [
@@ -76,6 +79,8 @@ RECOMMENDED_QUESTIONS = [
     "¿A qué clientes les puedo ofrecer un seguro hoy?",
     "¿Cuál es la edad promedio de los clientes que compran?",
     "¿Qué tipo de unidad compra más cada rango de edad y género?",
+    "¿Cuántas citas de servicio hay por estatus este mes?",
+    "¿Cuál es el porcentaje de no show en citas de servicio por taller?",
     "Ingresos por mes considerando ventas y servicios.",
     "Pronóstico de ventas para los próximos 3 meses.",
     "Pronóstico de ventas por estado para los próximos 6 meses con tendencia lineal.",
@@ -87,6 +92,7 @@ DEMO_COMMERCIAL_QUESTIONS = [
     "¿Qué tipo de unidad es más conveniente ofrecer por rango de edad y género?",
     "¿Qué porcentaje de clientes tiene póliza activa, vencida o sin póliza?",
     "¿Qué clientes tienen póliza por vencer en los próximos 60 días?",
+    "¿Qué asesores tienen más citas canceladas o no show?",
 ]
 
 GENERAL_REFERENCE_QUESTIONS = [
@@ -135,6 +141,11 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "cost": "Costo",
     "workshop": "Taller",
     "notes": "Notas",
+    "appointment_date": "Fecha Cita",
+    "scheduled_start": "Inicio Programado",
+    "scheduled_end": "Fin Programado",
+    "advisor": "Asesor",
+    "estimated_cost": "Costo Estimado",
     "policy_start_date": "Inicio Póliza",
     "policy_end_date": "Fin Póliza",
     "insurer": "Aseguradora",
@@ -242,6 +253,21 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "status", "type": "TEXT", "example": "entregado"},
         {"field": "workshop", "type": "TEXT", "example": "Taller Sur"},
         {"field": "notes", "type": "TEXT", "example": "Generado para demo"},
+    ],
+    "service_appointments": [
+        {"field": "id", "type": "INTEGER", "example": "1"},
+        {"field": "customer_id", "type": "INTEGER", "example": "1"},
+        {"field": "vehicle_id", "type": "INTEGER", "example": "1"},
+        {"field": "appointment_date", "type": "DATE/TEXT", "example": "2026-03-18"},
+        {"field": "scheduled_start", "type": "DATETIME/TEXT", "example": "2026-03-18 09:00:00"},
+        {"field": "scheduled_end", "type": "DATETIME/TEXT", "example": "2026-03-18 10:30:00"},
+        {"field": "service_type", "type": "TEXT", "example": "Mantenimiento preventivo"},
+        {"field": "status", "type": "TEXT", "example": "no_show"},
+        {"field": "advisor", "type": "TEXT", "example": "Diana Perez"},
+        {"field": "workshop", "type": "TEXT", "example": "Taller Norte"},
+        {"field": "estimated_cost", "type": "REAL", "example": "3600.00"},
+        {"field": "created_at", "type": "DATE/TEXT", "example": "2026-03-15 14:12:00"},
+        {"field": "notes", "type": "TEXT", "example": "Cliente pidió reagendar."},
     ],
     "insurance_policies": [
         {"field": "id", "type": "INTEGER", "example": "1"},
@@ -629,9 +655,11 @@ def _render_field_guide() -> None:
             "- customers.id = vehicles.customer_id\n"
             "- customers.id = sales.customer_id\n"
             "- customers.id = services.customer_id\n"
+            "- customers.id = service_appointments.customer_id\n"
             "- customers.id = insurance_policies.customer_id\n"
             "- vehicles.id = sales.vehicle_id\n"
             "- vehicles.id = services.vehicle_id\n"
+            "- vehicles.id = service_appointments.vehicle_id\n"
             "- vehicles.id = insurance_policies.vehicle_id"
         )
 
@@ -809,6 +837,7 @@ def main() -> None:
         f"{demo_info['vehicles']} vehiculos, "
         f"{demo_info['sales']} ventas, "
         f"{demo_info['services']} servicios, "
+        f"{demo_info['service_appointments']} citas servicio, "
         f"{demo_info['insurance_policies']} polizas."
     )
 

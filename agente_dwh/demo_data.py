@@ -10,7 +10,14 @@ DEMO_DIR = PROJECT_ROOT / "demo"
 DEMO_DB_PATH = DEMO_DIR / "demo_dwh.sqlite3"
 DEMO_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH.as_posix()}"
 DEMO_SCHEMA_HINT_FILE = (PROJECT_ROOT / "schema_hint_demo.txt").as_posix()
-DEMO_BASE_TABLES = ("insurance_policies", "services", "sales", "vehicles", "customers")
+DEMO_BASE_TABLES = (
+    "service_appointments",
+    "insurance_policies",
+    "services",
+    "sales",
+    "vehicles",
+    "customers",
+)
 DEMO_MATERIALIZED_TABLES = ("mv_customer_lifecycle", "mv_sales_monthly")
 DEMO_TABLES = (*DEMO_MATERIALIZED_TABLES, *DEMO_BASE_TABLES)
 
@@ -32,6 +39,7 @@ def ensure_demo_db(db_path: str | None = None) -> dict[str, int]:
         "vehicles": _count(conn, "vehicles"),
         "sales": _count(conn, "sales"),
         "services": _count(conn, "services"),
+        "service_appointments": _count(conn, "service_appointments"),
         "insurance_policies": _count(conn, "insurance_policies"),
         "mv_sales_monthly": _count(conn, "mv_sales_monthly"),
         "mv_customer_lifecycle": _count(conn, "mv_customer_lifecycle"),
@@ -72,6 +80,12 @@ def _is_schema_current(conn: sqlite3.Connection) -> bool:
         "customers": {"gender", "age", "birth_date", "monthly_income", "risk_profile"},
         "vehicles": {"unit_type"},
         "sales": {"payment_method"},
+        "service_appointments": {
+            "customer_id",
+            "vehicle_id",
+            "appointment_date",
+            "appointment_status",
+        },
         "insurance_policies": {
             "customer_id",
             "vehicle_id",
@@ -176,6 +190,22 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
         );
 
+        CREATE TABLE IF NOT EXISTS service_appointments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            vehicle_id INTEGER NOT NULL,
+            appointment_date TEXT NOT NULL,
+            service_type TEXT NOT NULL,
+            appointment_status TEXT NOT NULL,
+            workshop TEXT NOT NULL,
+            cancellation_reason TEXT,
+            attended INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(customer_id) REFERENCES customers(id),
+            FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
+        );
+
         CREATE TABLE IF NOT EXISTS mv_sales_monthly (
             year_month TEXT NOT NULL,
             state TEXT NOT NULL,
@@ -209,6 +239,10 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_services_customer ON services(customer_id);
         CREATE INDEX IF NOT EXISTS idx_services_vehicle ON services(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_services_date ON services(service_date);
+        CREATE INDEX IF NOT EXISTS idx_appointments_customer ON service_appointments(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_appointments_vehicle ON service_appointments(vehicle_id);
+        CREATE INDEX IF NOT EXISTS idx_appointments_date ON service_appointments(appointment_date);
+        CREATE INDEX IF NOT EXISTS idx_appointments_status ON service_appointments(appointment_status);
         CREATE INDEX IF NOT EXISTS idx_policies_customer ON insurance_policies(customer_id);
         CREATE INDEX IF NOT EXISTS idx_policies_vehicle ON insurance_policies(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_policies_status ON insurance_policies(policy_status);
@@ -470,6 +504,7 @@ def _seed_data(conn: sqlite3.Connection) -> None:
         "Servicio mayor",
     ]
     service_statuses = ["completado", "entregado", "facturado"]
+    appointment_statuses = ["completada", "programada", "no_show", "cancelada"]
     workshops = ["Taller Norte", "Taller Centro", "Taller Sur"]
     insurers = ["AXA", "GNP", "Qualitas", "Chubb", "HDI"]
     coverage_types = {
@@ -681,6 +716,69 @@ def _seed_data(conn: sqlite3.Connection) -> None:
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         services,
+    )
+
+    service_appointments = []
+    for customer_id in customer_ids:
+        v_ids = customer_to_vehicles[customer_id]
+        for vehicle_id in v_ids:
+            qty = rnd.choices([1, 2, 3], weights=[45, 38, 17], k=1)[0]
+            for _ in range(qty):
+                appointment_date = today + timedelta(days=rnd.randint(-120, 120))
+                appointment_status = rnd.choices(
+                    appointment_statuses,
+                    weights=[42, 33, 14, 11],
+                    k=1,
+                )[0]
+                service_type = rnd.choice(service_types)
+                workshop = rnd.choice(workshops)
+                cancellation_reason = None
+                attended = 1 if appointment_status == "completada" else 0
+                if appointment_status == "cancelada":
+                    cancellation_reason = rnd.choice(
+                        [
+                            "Cliente reagendó",
+                            "Refacción no disponible",
+                            "Conflicto de agenda",
+                        ]
+                    )
+                created_at = (appointment_date - timedelta(days=rnd.randint(1, 20))).isoformat()
+                updated_at = (
+                    appointment_date + timedelta(days=rnd.randint(0, 5))
+                    if appointment_status in {"completada", "no_show", "cancelada"}
+                    else appointment_date - timedelta(days=rnd.randint(0, 2))
+                ).isoformat()
+                service_appointments.append(
+                    (
+                        customer_id,
+                        vehicle_id,
+                        appointment_date.isoformat(),
+                        service_type,
+                        appointment_status,
+                        workshop,
+                        cancellation_reason,
+                        attended,
+                        created_at,
+                        updated_at,
+                    )
+                )
+
+    conn.executemany(
+        """
+        INSERT INTO service_appointments (
+            customer_id,
+            vehicle_id,
+            appointment_date,
+            service_type,
+            appointment_status,
+            workshop,
+            cancellation_reason,
+            attended,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        service_appointments,
     )
 
     insurance_policies = []

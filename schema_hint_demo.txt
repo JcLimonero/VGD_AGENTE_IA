@@ -51,7 +51,20 @@ Tablas disponibles para analisis demo:
 - workshop
 - notes
 
-5) insurance_policies
+5) service_appointments
+- id (PK)
+- customer_id (FK -> customers.id)
+- vehicle_id (FK -> vehicles.id)
+- scheduled_date
+- appointment_time
+- service_type
+- advisor
+- channel
+- status (completada, programada, no_show, cancelada)
+- created_at
+- notes
+
+6) insurance_policies
 - id (PK)
 - customer_id (FK -> customers.id)
 - vehicle_id (FK -> vehicles.id)
@@ -64,7 +77,7 @@ Tablas disponibles para analisis demo:
 - claim_count
 - last_claim_date
 
-6) mv_sales_monthly (tabla materializada para analytics)
+7) mv_sales_monthly (tabla materializada para analytics)
 - year_month
 - state
 - channel
@@ -72,7 +85,7 @@ Tablas disponibles para analisis demo:
 - total_sales
 - sales_count
 
-7) mv_customer_lifecycle (tabla materializada para analytics)
+8) mv_customer_lifecycle (tabla materializada para analytics)
 - customer_id
 - purchases
 - total_amount
@@ -84,13 +97,18 @@ Relaciones clave:
 - customers.id -> vehicles.customer_id
 - customers.id -> sales.customer_id
 - customers.id -> services.customer_id
+- customers.id -> service_appointments.customer_id
 - customers.id -> insurance_policies.customer_id
 - vehicles.id -> sales.vehicle_id
 - vehicles.id -> services.vehicle_id
+- vehicles.id -> service_appointments.vehicle_id
 - vehicles.id -> insurance_policies.vehicle_id
 - customers.id -> mv_customer_lifecycle.customer_id
 
 Preguntas de negocio que soporta este demo:
+- Citas agendadas de servicio por estatus (completada/programada/no_show/cancelada).
+- Tasa de no show por estado, canal o asesor.
+- Citas programadas para los próximos 7/30 días.
 - Tiempo promedio de recompra por cliente (diferencia entre compras consecutivas en sales.sale_date).
 - Edad promedio de compradores y analisis por gender.
 - Tipo de unidad recomendado por rango de edad y genero (vehicles.unit_type + customers.age/gender).
@@ -103,5 +121,6 @@ Buenas practicas:
 - Para recompra, usar ventanas (LAG) en sales por customer_id y calcular dias entre compras.
 - Para recomendacion por rango de edad, agrupar por buckets de age y unit_type.
 - Para seguro, combinar customers + vehicles + insurance_policies filtrando por policy_status y fechas.
+- Para agenda de servicio, usar service_appointments y filtrar por status/scheduled_date.
 - Para pronósticos y tendencias mensuales, preferir mv_sales_monthly en lugar de recalcular desde sales.
 - Para recompra y ciclo de vida por cliente, preferir mv_customer_lifecycle.
