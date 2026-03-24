@@ -55,7 +55,7 @@ DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - vehicles(id, customer_id, vin, plate, brand, model, unit_type, year, fuel_type, mileage, created_at)
 - sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, payment_method, status)
 - services(id, customer_id, vehicle_id, service_date, service_type, cost, status, workshop, notes)
-- service_appointments(id, customer_id, vehicle_id, appointment_date, scheduled_start, scheduled_end, service_type, status, advisor, workshop, estimated_cost, created_at, notes)
+- service_appointments(id, customer_id, vehicle_id, appointment_date, service_type, appointment_status, workshop, cancellation_reason, attended, created_at, updated_at)
 - insurance_policies(id, customer_id, vehicle_id, policy_start_date, policy_end_date, insurer, coverage_type, annual_premium, policy_status, claim_count, last_claim_date)
 
 Relaciones:
@@ -150,10 +150,10 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "workshop": "Taller",
     "notes": "Notas",
     "appointment_date": "Fecha Cita",
-    "scheduled_start": "Inicio Programado",
-    "scheduled_end": "Fin Programado",
-    "advisor": "Asesor",
-    "estimated_cost": "Costo Estimado",
+    "appointment_status": "Estatus Cita",
+    "cancellation_reason": "Motivo Cancelación",
+    "attended": "Asistió",
+    "updated_at": "Última Actualización",
     "policy_start_date": "Inicio Póliza",
     "policy_end_date": "Fin Póliza",
     "insurer": "Aseguradora",
@@ -177,6 +177,8 @@ SPANISH_VALUE_LABELS: dict[str, str] = {
     "activa": "Activa",
     "vencida": "Vencida",
     "cancelada": "Cancelada",
+    "programada": "Programada",
+    "no_show": "No Show",
     "sin_poliza": "Sin Póliza",
     # Riesgo
     "alto": "Alto",
@@ -267,15 +269,13 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
         {"field": "customer_id", "type": "INTEGER", "example": "1"},
         {"field": "vehicle_id", "type": "INTEGER", "example": "1"},
         {"field": "appointment_date", "type": "DATE/TEXT", "example": "2026-03-18"},
-        {"field": "scheduled_start", "type": "DATETIME/TEXT", "example": "2026-03-18 09:00:00"},
-        {"field": "scheduled_end", "type": "DATETIME/TEXT", "example": "2026-03-18 10:30:00"},
         {"field": "service_type", "type": "TEXT", "example": "Mantenimiento preventivo"},
-        {"field": "status", "type": "TEXT", "example": "no_show"},
-        {"field": "advisor", "type": "TEXT", "example": "Diana Perez"},
+        {"field": "appointment_status", "type": "TEXT", "example": "no_show"},
         {"field": "workshop", "type": "TEXT", "example": "Taller Norte"},
-        {"field": "estimated_cost", "type": "REAL", "example": "3600.00"},
-        {"field": "created_at", "type": "DATE/TEXT", "example": "2026-03-15 14:12:00"},
-        {"field": "notes", "type": "TEXT", "example": "Cliente pidió reagendar."},
+        {"field": "cancellation_reason", "type": "TEXT", "example": "Conflicto de agenda"},
+        {"field": "attended", "type": "INTEGER", "example": "0"},
+        {"field": "created_at", "type": "DATE/TEXT", "example": "2026-03-12"},
+        {"field": "updated_at", "type": "DATE/TEXT", "example": "2026-03-18"},
     ],
     "insurance_policies": [
         {"field": "id", "type": "INTEGER", "example": "1"},

@@ -170,6 +170,7 @@ class DwhClient:
         )
         normalized = self._rewrite_interval_arithmetic(normalized)
         normalized = self._rewrite_window_avg_misuse(normalized)
+        normalized = self._rewrite_service_appointments_status_aliases(normalized)
         return self._rewrite_sales_status_aliases(normalized)
 
     def _rewrite_interval_arithmetic(self, sql: str) -> str:
@@ -250,3 +251,49 @@ class DwhClient:
             r"\g<prefix> IN ('completed', 'entregada', 'facturada', 'cerrada')",
             sql,
         )
+
+    def _rewrite_service_appointments_status_aliases(self, sql: str) -> str:
+        """
+        Corrige SQL generado para agenda de servicio cuando usa columna status.
+
+        En service_appointments la columna real es appointment_status.
+        El LLM puede generar `status` por consistencia con otras tablas.
+        """
+        lowered = sql.lower()
+        if "service_appointments" not in lowered:
+            return sql
+
+        normalized = re.sub(
+            r"(?i)(\bservice_appointments\s*\.\s*)status\b",
+            r"\1appointment_status",
+            sql,
+        )
+        normalized = re.sub(
+            r"(?i)(\b(?:from|join)\s+service_appointments(?:\s+as)?\s+)([A-Za-z_][A-Za-z0-9_]*)",
+            r"\1\2",
+            normalized,
+        )
+        alias_matches = re.findall(
+            r"(?i)\b(?:from|join)\s+service_appointments(?:\s+as)?\s+([A-Za-z_][A-Za-z0-9_]*)",
+            normalized,
+        )
+        for alias in alias_matches:
+            normalized = re.sub(
+                rf"(?i)(\b{re.escape(alias)}\s*\.\s*)status\b",
+                rf"\1appointment_status",
+                normalized,
+            )
+
+        if re.search(r"(?i)\bappointment_status\b", normalized):
+            normalized = re.sub(r"(?i)\bstatus\b", "appointment_status", normalized)
+            return normalized
+
+        # Si la consulta usa service_appointments sin alias explícito y no mezcla
+        # otras tablas con columna status, reemplazamos status sin prefijo.
+        has_other_status_tables = re.search(
+            r"(?i)\b(?:from|join)\s+(sales|services)\b",
+            normalized,
+        )
+        if not has_other_status_tables:
+            normalized = re.sub(r"(?i)\bstatus\b", "appointment_status", normalized)
+        return normalized

@@ -55,14 +55,14 @@ Tablas disponibles para analisis demo:
 - id (PK)
 - customer_id (FK -> customers.id)
 - vehicle_id (FK -> vehicles.id)
-- scheduled_date
-- appointment_time
+- appointment_date
 - service_type
-- advisor
-- channel
-- status (completada, programada, no_show, cancelada)
+- appointment_status (completada, programada, no_show, cancelada)
+- workshop
+- cancellation_reason
+- attended
 - created_at
-- notes
+- updated_at
 
 6) insurance_policies
 - id (PK)
