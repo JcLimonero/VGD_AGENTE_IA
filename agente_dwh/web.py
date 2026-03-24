@@ -111,10 +111,10 @@ def main() -> None:
     demo_info = ensure_demo_db(DEMO_DB_PATH)
     st.success(
         "Base demo lista: "
-        f"{demo_info['clientes']} clientes, "
-        f"{demo_info['vehiculos']} vehiculos, "
-        f"{demo_info['ventas']} ventas, "
-        f"{demo_info['servicios']} servicios."
+        f"{demo_info['customers']} clientes, "
+        f"{demo_info['vehicles']} vehiculos, "
+        f"{demo_info['sales']} ventas, "
+        f"{demo_info['services']} servicios."
     )
 
     # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
