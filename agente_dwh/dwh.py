@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -39,6 +40,7 @@ class DwhClient:
 
     def _inject_limit_if_missing(self, sql: str) -> str:
         lowered = sql.lower()
-        if " limit " in lowered or lowered.endswith(" limit"):
+        # Evita duplicar LIMIT cuando ya viene en la consulta.
+        if re.search(r"\blimit\b", lowered):
             return sql
         return f"{sql.rstrip(';')} LIMIT {self.default_limit};"

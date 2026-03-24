@@ -27,7 +27,7 @@ except ImportError:
 DEMO_DB_PATH = "/tmp/agente_dwh_demo.db"
 DEFAULT_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH}"
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
-DEFAULT_LLM_MODEL = "qwen2.5:0.5b"
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - customers(id, customer_code, full_name, email, phone, city, state, segment, created_at)
 - vehicles(id, customer_id, vin, plate, brand, model, year, fuel_type, mileage, created_at)
