@@ -116,21 +116,39 @@ class DwhClient:
             r"^SELECT\s+customer_id\s*,\s*"
             r"AVG\(\s*julianday\(\s*sale_date\s*\)\s*-\s*LAG\(\s*julianday\(\s*sale_date\s*\)\s*\)\s*"
             r"OVER\s*\(\s*PARTITION\s+BY\s+customer_id\s+ORDER\s+BY\s+sale_date\s*\)\s*\)\s*"
-            r"AS\s+avg_time_between_purchases\s+FROM\s+sales\s+GROUP\s+BY\s+customer_id\s+"
-            r"ORDER\s+BY\s+avg_time_between_purchases\s+DESC(?:\s+LIMIT\s+\d+)?;?$"
+            r"AS\s+(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s+"
+            r"FROM\s+sales\s+GROUP\s+BY\s+customer_id(?P<tail>.*)$"
         )
-        if not re.match(pattern, normalized, flags=re.IGNORECASE):
+        match = re.match(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
             return sql
 
-        return (
+        alias = match.group("alias")
+        tail = (match.group("tail") or "").strip().rstrip(";")
+        order_clause = ""
+        limit_clause = ""
+
+        order_match = re.search(r"\bORDER\s+BY\s+(.+?)(?=\s+LIMIT\b|$)", tail, flags=re.IGNORECASE)
+        if order_match:
+            order_clause = f"ORDER BY {order_match.group(1).strip()}"
+
+        limit_match = re.search(r"\bLIMIT\s+(?P<n>\d+)\b", tail, flags=re.IGNORECASE)
+        if limit_match:
+            limit_clause = f"LIMIT {limit_match.group('n')}"
+
+        rewritten = (
             "WITH sale_gaps AS ("
             " SELECT customer_id, "
             " julianday(sale_date) - julianday(LAG(sale_date) OVER (PARTITION BY customer_id ORDER BY sale_date)) AS gap_days "
             " FROM sales"
             ") "
-            "SELECT customer_id, ROUND(AVG(gap_days), 2) AS avg_time_between_purchases "
+            f"SELECT customer_id, ROUND(AVG(gap_days), 2) AS {alias} "
             "FROM sale_gaps "
             "WHERE gap_days IS NOT NULL "
             "GROUP BY customer_id "
-            "ORDER BY avg_time_between_purchases DESC"
         )
+        if order_clause:
+            rewritten += f"{order_clause} "
+        if limit_clause:
+            rewritten += limit_clause
+        return rewritten.strip()
