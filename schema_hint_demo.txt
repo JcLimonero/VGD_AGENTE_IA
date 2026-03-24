@@ -64,6 +64,22 @@ Tablas disponibles para analisis demo:
 - claim_count
 - last_claim_date
 
+6) mv_sales_monthly (tabla materializada para analytics)
+- year_month
+- state
+- channel
+- segment
+- total_sales
+- sales_count
+
+7) mv_customer_lifecycle (tabla materializada para analytics)
+- customer_id
+- purchases
+- total_amount
+- first_sale_date
+- last_sale_date
+- avg_repurchase_days
+
 Relaciones clave:
 - customers.id -> vehicles.customer_id
 - customers.id -> sales.customer_id
@@ -72,6 +88,7 @@ Relaciones clave:
 - vehicles.id -> sales.vehicle_id
 - vehicles.id -> services.vehicle_id
 - vehicles.id -> insurance_policies.vehicle_id
+- customers.id -> mv_customer_lifecycle.customer_id
 
 Preguntas de negocio que soporta este demo:
 - Tiempo promedio de recompra por cliente (diferencia entre compras consecutivas en sales.sale_date).
@@ -86,3 +103,5 @@ Buenas practicas:
 - Para recompra, usar ventanas (LAG) en sales por customer_id y calcular dias entre compras.
 - Para recomendacion por rango de edad, agrupar por buckets de age y unit_type.
 - Para seguro, combinar customers + vehicles + insurance_policies filtrando por policy_status y fechas.
+- Para pronósticos y tendencias mensuales, preferir mv_sales_monthly en lugar de recalcular desde sales.
+- Para recompra y ciclo de vida por cliente, preferir mv_customer_lifecycle.

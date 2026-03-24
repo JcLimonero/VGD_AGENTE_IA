@@ -39,6 +39,8 @@ export LLM_ENDPOINT='http://127.0.0.1:11434'
 export LLM_MODEL='llama3.1'
 export MAX_ROWS='200'
 export LLM_TIMEOUT_SECONDS='60'
+export CACHE_TTL_SECONDS='120'
+export CACHE_MAX_ENTRIES='500'
 ```
 
 Opcional para dar contexto de tablas/columnas:
@@ -66,6 +68,29 @@ agente-dwh --json "ventas por región en 2025"
 - Bloquea operaciones peligrosas (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.).
 - Aplica `LIMIT` automático si no existe uno en la consulta.
 
+## Robustez implementada
+
+- **Plantillas determinísticas para KPIs críticos**:
+  - Tiempo promedio de recompra.
+  - Oportunidades de seguro.
+  - Edad promedio de compradores.
+  - Unidad recomendada por edad/género.
+  - Estas consultas se resuelven sin depender del LLM.
+
+- **Cache SQL en memoria (LRU + TTL)**:
+  - Configurable con `CACHE_TTL_SECONDS` y `CACHE_MAX_ENTRIES`.
+  - Expone estadísticas de hit/miss para CLI y web.
+
+- **Observabilidad y alertas**:
+  - Eventos por consulta (latencia, filas, éxito, cache hit).
+  - Alertas de error y de latencia alta.
+  - Panel de observabilidad en la UI web.
+
+- **Tablas materializadas en demo**:
+  - `mv_sales_monthly`: ventas mensuales por estado/canal/segmento.
+  - `mv_customer_lifecycle`: ciclo de vida por cliente (incluye recompra).
+  - Pronóstico usa `mv_sales_monthly` para reducir costo de cómputo.
+
 ## Arquitectura mínima
 
 - `agente_dwh/llm_local.py`: cliente Ollama local (`/api/chat`).
@@ -73,6 +98,8 @@ agente-dwh --json "ventas por región en 2025"
 - `agente_dwh/dwh.py`: ejecución de SQL en DWH con SQLAlchemy.
 - `agente_dwh/agent.py`: orquestador pregunta -> SQL -> ejecución.
 - `agente_dwh/cli.py`: interfaz de línea de comandos.
+- `agente_dwh/kpi_templates.py`: motor de plantillas determinísticas KPI.
+- `agente_dwh/observability.py`: métricas, eventos y alertas operativas.
 
 ## Ejemplo directo con tu base PostgreSQL
 
@@ -143,6 +170,11 @@ La relacion principal es:
 - `vehicles.id` -> `sales.vehicle_id`
 - `vehicles.id` -> `services.vehicle_id`
 
+Además, la demo crea tablas materializadas para acelerar analítica:
+
+- `mv_sales_monthly`
+- `mv_customer_lifecycle`
+
 En la web se activa por defecto con la variable:
 
 ```bash
@@ -155,3 +187,32 @@ Preguntas recomendadas para demo:
 - "Ventas por marca de vehículo en 2025"
 - "Clientes con más servicios realizados"
 - "Ingreso mensual por servicios"
+
+## Pruebas automáticas
+
+Ejecuta pruebas de regresión:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Cobertura incluida:
+
+- Plantillas KPI determinísticas.
+- Cache SQL (TTL / hit / miss).
+- Pronóstico usando tabla materializada `mv_sales_monthly`.
+
+## Prueba de carga (rápida)
+
+Script de carga concurrente sobre la base demo:
+
+```bash
+python3 scripts/load_test.py --threads 6 --iters 40 --ttl 120 --cache-size 500
+```
+
+Salida esperada:
+
+- QPS aproximado.
+- p50/p95 de latencia.
+- ratio de éxito.
+- estadísticas de cache.

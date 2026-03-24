@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import re
+import time
 from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+
+from .observability import record_query_event
 
 
 @dataclass
@@ -17,11 +21,29 @@ class DwhClient:
 
     engine: Engine
     default_limit: int = 200
+    cache_ttl_seconds: int = 120
+    cache_max_entries: int = 500
+
+    def __post_init__(self) -> None:
+        self._cache: OrderedDict[str, tuple[float, list[dict[str, Any]]]] = OrderedDict()
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     @classmethod
-    def from_url(cls, database_url: str, default_limit: int = 200) -> "DwhClient":
+    def from_url(
+        cls,
+        database_url: str,
+        default_limit: int = 200,
+        cache_ttl_seconds: int = 120,
+        cache_max_entries: int = 500,
+    ) -> "DwhClient":
         engine = create_engine(database_url)
-        return cls(engine=engine, default_limit=default_limit)
+        return cls(
+            engine=engine,
+            default_limit=default_limit,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cache_max_entries=cache_max_entries,
+        )
 
     @property
     def dialect_name(self) -> str:
@@ -30,19 +52,83 @@ class DwhClient:
 
     def execute_select(self, sql: str) -> list[dict[str, Any]]:
         """Ejecuta una consulta de solo lectura y devuelve filas en formato dict."""
+        start = time.perf_counter()
         normalized_sql = self._normalize_sql_for_dialect(sql.strip())
         sql_with_limit = self._inject_limit_if_missing(normalized_sql)
+        cached_rows = self._get_cached_rows(sql_with_limit)
+        if cached_rows is not None:
+            self._cache_hits += 1
+            record_query_event(
+                source="dwh",
+                success=True,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=len(cached_rows),
+                cached=True,
+            )
+            return cached_rows
+
+        self._cache_misses += 1
         try:
             with self.engine.connect() as connection:
                 result = connection.execute(text(sql_with_limit))
                 rows = [dict(row._mapping) for row in result.fetchall()]
+                self._set_cache_rows(sql_with_limit, rows)
+                record_query_event(
+                    source="dwh",
+                    success=True,
+                    duration_ms=(time.perf_counter() - start) * 1000.0,
+                    row_count=len(rows),
+                    cached=False,
+                )
                 return rows
         except SQLAlchemyError as exc:
+            record_query_event(
+                source="dwh",
+                success=False,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=0,
+                cached=False,
+                message=str(exc),
+            )
             raise RuntimeError(f"Error ejecutando consulta en DWH: {exc}") from exc
 
     def run_query(self, sql: str) -> list[dict[str, Any]]:
         """Alias para compatibilidad con versiones previas."""
         return self.execute_select(sql)
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        total = self._cache_hits + self._cache_misses
+        hit_ratio = (self._cache_hits / total) if total else 0.0
+        return {
+            "entries": len(self._cache),
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "hit_ratio": round(hit_ratio, 4),
+            "ttl_seconds": self.cache_ttl_seconds,
+            "max_entries": self.cache_max_entries,
+        }
+
+    def _get_cached_rows(self, sql: str) -> list[dict[str, Any]] | None:
+        if self.cache_ttl_seconds <= 0:
+            return None
+        now = time.time()
+        cached = self._cache.get(sql)
+        if cached is None:
+            return None
+        created_at, rows = cached
+        if now - created_at > self.cache_ttl_seconds:
+            self._cache.pop(sql, None)
+            return None
+        self._cache.move_to_end(sql)
+        return [dict(row) for row in rows]
+
+    def _set_cache_rows(self, sql: str, rows: list[dict[str, Any]]) -> None:
+        if self.cache_ttl_seconds <= 0:
+            return
+        self._cache[sql] = (time.time(), [dict(row) for row in rows])
+        self._cache.move_to_end(sql)
+        while len(self._cache) > self.cache_max_entries:
+            self._cache.popitem(last=False)
 
     def _inject_limit_if_missing(self, sql: str) -> str:
         lowered = sql.lower()

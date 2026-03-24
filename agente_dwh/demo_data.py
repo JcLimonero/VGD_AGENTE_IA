@@ -10,7 +10,9 @@ DEMO_DIR = PROJECT_ROOT / "demo"
 DEMO_DB_PATH = DEMO_DIR / "demo_dwh.sqlite3"
 DEMO_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH.as_posix()}"
 DEMO_SCHEMA_HINT_FILE = (PROJECT_ROOT / "schema_hint_demo.txt").as_posix()
-DEMO_TABLES = ("insurance_policies", "services", "sales", "vehicles", "customers")
+DEMO_BASE_TABLES = ("insurance_policies", "services", "sales", "vehicles", "customers")
+DEMO_MATERIALIZED_TABLES = ("mv_customer_lifecycle", "mv_sales_monthly")
+DEMO_TABLES = (*DEMO_MATERIALIZED_TABLES, *DEMO_BASE_TABLES)
 
 
 def ensure_demo_db(db_path: str | None = None) -> dict[str, int]:
@@ -24,12 +26,15 @@ def ensure_demo_db(db_path: str | None = None) -> dict[str, int]:
     elif _count(conn, "customers") == 0:
         _seed_data(conn)
 
+    _ensure_performance_structures(conn)
     counts = {
         "customers": _count(conn, "customers"),
         "vehicles": _count(conn, "vehicles"),
         "sales": _count(conn, "sales"),
         "services": _count(conn, "services"),
         "insurance_policies": _count(conn, "insurance_policies"),
+        "mv_sales_monthly": _count(conn, "mv_sales_monthly"),
+        "mv_customer_lifecycle": _count(conn, "mv_customer_lifecycle"),
     }
     conn.close()
     return counts
@@ -171,20 +176,106 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
         );
 
+        CREATE TABLE IF NOT EXISTS mv_sales_monthly (
+            year_month TEXT NOT NULL,
+            state TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            segment TEXT NOT NULL,
+            total_sales REAL NOT NULL,
+            sales_count INTEGER NOT NULL,
+            PRIMARY KEY (year_month, state, channel, segment)
+        );
+
+        CREATE TABLE IF NOT EXISTS mv_customer_lifecycle (
+            customer_id INTEGER PRIMARY KEY,
+            purchases INTEGER NOT NULL,
+            total_amount REAL NOT NULL,
+            first_sale_date TEXT,
+            last_sale_date TEXT,
+            avg_repurchase_days REAL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_customers_state ON customers(state);
         CREATE INDEX IF NOT EXISTS idx_customers_age ON customers(age);
         CREATE INDEX IF NOT EXISTS idx_customers_gender ON customers(gender);
+        CREATE INDEX IF NOT EXISTS idx_customers_segment ON customers(segment);
         CREATE INDEX IF NOT EXISTS idx_vehicles_customer ON vehicles(customer_id);
         CREATE INDEX IF NOT EXISTS idx_vehicles_unit_type ON vehicles(unit_type);
         CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id);
         CREATE INDEX IF NOT EXISTS idx_sales_vehicle ON sales(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sale_date);
+        CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);
+        CREATE INDEX IF NOT EXISTS idx_sales_state_date ON sales(customer_id, sale_date);
         CREATE INDEX IF NOT EXISTS idx_services_customer ON services(customer_id);
         CREATE INDEX IF NOT EXISTS idx_services_vehicle ON services(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_services_date ON services(service_date);
         CREATE INDEX IF NOT EXISTS idx_policies_customer ON insurance_policies(customer_id);
         CREATE INDEX IF NOT EXISTS idx_policies_vehicle ON insurance_policies(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_policies_status ON insurance_policies(policy_status);
+        CREATE INDEX IF NOT EXISTS idx_policies_end_date ON insurance_policies(policy_end_date);
+        CREATE INDEX IF NOT EXISTS idx_mv_sales_monthly_period ON mv_sales_monthly(year_month);
+        CREATE INDEX IF NOT EXISTS idx_mv_sales_monthly_state ON mv_sales_monthly(state);
+        CREATE INDEX IF NOT EXISTS idx_mv_customer_lifecycle_avg ON mv_customer_lifecycle(avg_repurchase_days);
+        """
+    )
+
+
+def _ensure_performance_structures(conn: sqlite3.Connection) -> None:
+    """Refresca tablas materializadas e índices auxiliares de lectura."""
+    _refresh_materialized_views(conn)
+    conn.commit()
+
+
+def _refresh_materialized_views(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM mv_sales_monthly;")
+    conn.execute("DELETE FROM mv_customer_lifecycle;")
+
+    conn.execute(
+        """
+        INSERT INTO mv_sales_monthly (year_month, state, channel, segment, total_sales, sales_count)
+        SELECT
+            substr(CAST(s.sale_date AS TEXT), 1, 7) AS year_month,
+            COALESCE(c.state, 'SIN_DATO') AS state,
+            COALESCE(s.channel, 'SIN_DATO') AS channel,
+            COALESCE(c.segment, 'SIN_DATO') AS segment,
+            ROUND(SUM(s.amount), 2) AS total_sales,
+            COUNT(*) AS sales_count
+        FROM sales s
+        JOIN customers c ON c.id = s.customer_id
+        WHERE s.sale_date IS NOT NULL
+        GROUP BY 1, 2, 3, 4;
+        """
+    )
+
+    conn.execute(
+        """
+        INSERT INTO mv_customer_lifecycle (
+            customer_id,
+            purchases,
+            total_amount,
+            first_sale_date,
+            last_sale_date,
+            avg_repurchase_days
+        )
+        WITH sale_gaps AS (
+            SELECT
+                s.customer_id,
+                s.sale_date,
+                s.amount,
+                julianday(s.sale_date)
+                - julianday(LAG(s.sale_date) OVER (PARTITION BY s.customer_id ORDER BY s.sale_date)) AS gap_days
+            FROM sales s
+            WHERE s.sale_date IS NOT NULL
+        )
+        SELECT
+            customer_id,
+            COUNT(*) AS purchases,
+            ROUND(SUM(amount), 2) AS total_amount,
+            MIN(sale_date) AS first_sale_date,
+            MAX(sale_date) AS last_sale_date,
+            ROUND(AVG(gap_days), 2) AS avg_repurchase_days
+        FROM sale_gaps
+        GROUP BY customer_id;
         """
     )
 

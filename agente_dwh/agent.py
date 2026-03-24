@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from .dwh import DwhClient
+from .kpi_templates import DeterministicQuery, match_kpi_template
 from .llm_local import OllamaClient
+from .observability import StopWatch, record_query_event
 from .sql_guard import clean_sql_output, validate_read_only_sql
 
 
@@ -38,6 +40,8 @@ class QueryResult:
     question: str
     generated_sql: str
     rows: list[dict[str, Any]]
+    deterministic_kpi: str = ""
+    deterministic_explanation: str = ""
 
 
 class DwhAgent:
@@ -50,6 +54,19 @@ class DwhAgent:
         self._dwh = dwh_client
         self._llm = llm_client
         self._schema_hint = schema_hint.strip()
+
+    def _try_deterministic_kpi(self, question: str) -> QueryResult | None:
+        matched: DeterministicQuery | None = match_kpi_template(question)
+        if not matched:
+            return None
+        rows = self._dwh.execute_select(matched.sql)
+        return QueryResult(
+            question=question,
+            generated_sql=matched.sql,
+            rows=rows,
+            deterministic_kpi=matched.name,
+            deterministic_explanation=matched.explanation,
+        )
 
     def _dialect_guidance(self) -> str:
         dialect = self._dwh.dialect_name
@@ -93,23 +110,68 @@ class DwhAgent:
             "Devuelve SOLO una versión corregida del SQL."
         )
 
+    def get_cache_stats(self) -> dict[str, Any]:
+        return self._dwh.get_cache_stats()
+
     def answer(self, question: str) -> QueryResult:
-        prompt = self._build_user_prompt(question)
-        raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=SYSTEM_PROMPT)
-        generated_sql = clean_sql_output(raw_output)
-        validate_read_only_sql(generated_sql)
+        stopwatch = StopWatch()
         try:
-            rows = self._dwh.execute_select(generated_sql)
-            return QueryResult(question=question, generated_sql=generated_sql, rows=rows)
-        except RuntimeError as first_exc:
-            # Reintento único: pedir al LLM una corrección basada en el error SQL.
-            fix_prompt = self._build_fix_prompt(
-                question=question,
-                previous_sql=generated_sql,
-                execution_error=str(first_exc),
+            deterministic_result = self._try_deterministic_kpi(question)
+            if deterministic_result is not None:
+                record_query_event(
+                    source="agent",
+                    success=True,
+                    duration_ms=stopwatch.elapsed_ms(),
+                    row_count=len(deterministic_result.rows),
+                    cached=False,
+                    message=f"kpi_deterministico:{deterministic_result.deterministic_kpi}",
+                )
+                return deterministic_result
+
+            prompt = self._build_user_prompt(question)
+            raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=SYSTEM_PROMPT)
+            generated_sql = clean_sql_output(raw_output)
+            validate_read_only_sql(generated_sql)
+            try:
+                rows = self._dwh.execute_select(generated_sql)
+                result = QueryResult(question=question, generated_sql=generated_sql, rows=rows)
+                record_query_event(
+                    source="agent",
+                    success=True,
+                    duration_ms=stopwatch.elapsed_ms(),
+                    row_count=len(rows),
+                    cached=False,
+                    message="llm_sql",
+                )
+                return result
+            except RuntimeError as first_exc:
+                # Reintento único: pedir al LLM una corrección basada en el error SQL.
+                fix_prompt = self._build_fix_prompt(
+                    question=question,
+                    previous_sql=generated_sql,
+                    execution_error=str(first_exc),
+                )
+                fixed_raw = self._llm.generar_sql(prompt=fix_prompt, system_prompt=SQL_FIX_PROMPT)
+                fixed_sql = clean_sql_output(fixed_raw)
+                validate_read_only_sql(fixed_sql)
+                rows = self._dwh.execute_select(fixed_sql)
+                result = QueryResult(question=question, generated_sql=fixed_sql, rows=rows)
+                record_query_event(
+                    source="agent",
+                    success=True,
+                    duration_ms=stopwatch.elapsed_ms(),
+                    row_count=len(rows),
+                    cached=False,
+                    message="llm_sql_fix",
+                )
+                return result
+        except Exception as exc:
+            record_query_event(
+                source="agent",
+                success=False,
+                duration_ms=stopwatch.elapsed_ms(),
+                row_count=0,
+                cached=False,
+                message=str(exc),
             )
-            fixed_raw = self._llm.generar_sql(prompt=fix_prompt, system_prompt=SQL_FIX_PROMPT)
-            fixed_sql = clean_sql_output(fixed_raw)
-            validate_read_only_sql(fixed_sql)
-            rows = self._dwh.execute_select(fixed_sql)
-            return QueryResult(question=question, generated_sql=fixed_sql, rows=rows)
+            raise

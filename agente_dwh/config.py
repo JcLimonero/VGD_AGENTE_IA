@@ -19,6 +19,8 @@ class Config:
     llm_model: str
     max_rows: int
     llm_timeout_seconds: int
+    cache_ttl_seconds: int = 120
+    cache_max_entries: int = 500
     schema_hint_file: str = ""
 
     @staticmethod
@@ -34,6 +36,8 @@ class Config:
         llm_model = os.getenv("LLM_MODEL", "qwen2.5:7b").strip()
         max_rows_raw = os.getenv("MAX_ROWS", "200").strip()
         timeout_raw = os.getenv("LLM_TIMEOUT_SECONDS", "180").strip()
+        cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "120").strip()
+        cache_max_entries_raw = os.getenv("CACHE_MAX_ENTRIES", "500").strip()
         schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "").strip()
 
         try:
@@ -50,12 +54,28 @@ class Config:
         if llm_timeout_seconds <= 0:
             raise ConfigError("LLM_TIMEOUT_SECONDS debe ser mayor que 0.")
 
+        try:
+            cache_ttl_seconds = int(cache_ttl_raw)
+        except ValueError as exc:
+            raise ConfigError("CACHE_TTL_SECONDS debe ser un entero valido.") from exc
+        if cache_ttl_seconds < 0:
+            raise ConfigError("CACHE_TTL_SECONDS debe ser mayor o igual que 0.")
+
+        try:
+            cache_max_entries = int(cache_max_entries_raw)
+        except ValueError as exc:
+            raise ConfigError("CACHE_MAX_ENTRIES debe ser un entero valido.") from exc
+        if cache_max_entries <= 0:
+            raise ConfigError("CACHE_MAX_ENTRIES debe ser mayor que 0.")
+
         return Config(
             dwh_url=dwh_url,
             llm_endpoint=llm_endpoint,
             llm_model=llm_model,
             max_rows=max_rows,
             llm_timeout_seconds=llm_timeout_seconds,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cache_max_entries=cache_max_entries,
             schema_hint_file=schema_hint_file,
         )
 

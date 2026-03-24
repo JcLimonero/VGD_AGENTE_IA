@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
-from types import SimpleNamespace
 from typing import Any
 
 import streamlit as st
@@ -23,6 +22,7 @@ try:
         is_forecast_intent,
     )
     from .llm_local import LocalOllamaClient
+    from .observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
 except ImportError:
     # Cuando Streamlit ejecuta el archivo como script, no hay paquete padre.
     import sys
@@ -43,6 +43,7 @@ except ImportError:
         is_forecast_intent,
     )
     from agente_dwh.llm_local import LocalOllamaClient
+    from agente_dwh.observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
 
 DEMO_DB_PATH = "/tmp/agente_dwh_demo.db"
 DEFAULT_DWH_URL = f"sqlite+pysqlite:///{DEMO_DB_PATH}"
@@ -282,8 +283,15 @@ def _build_agent(
     row_limit: int,
     llm_timeout_seconds: int,
     schema_hint: str,
+    cache_ttl_seconds: int,
+    cache_max_entries: int,
 ) -> DwhAgent:
-    dwh = DwhClient.from_url(dwh_url, default_limit=row_limit)
+    dwh = DwhClient.from_url(
+        dwh_url,
+        default_limit=row_limit,
+        cache_ttl_seconds=cache_ttl_seconds,
+        cache_max_entries=cache_max_entries,
+    )
     llm = LocalOllamaClient(
         base_url=llm_endpoint,
         model_name=llm_model,
@@ -486,46 +494,17 @@ def _nearest_horizon_option(value: int) -> int:
     return min(options, key=lambda opt: abs(opt - value))
 
 
-def _is_repurchase_time_intent(question: str) -> bool:
-    text = (question or "").strip().lower()
-    has_repurchase = any(
-        token in text
-        for token in (
-            "recompra",
-            "volver a comprar",
-            "vuelve a comprar",
-            "cada cuanto compra",
-            "cada cuánto compra",
-        )
-    )
-    has_time = any(token in text for token in ("promedio", "tiempo", "dias", "días", "cada cuanto", "cada cuánto"))
-    return has_repurchase and has_time
-
-
-def _build_repurchase_time_sql() -> str:
-    # Definición de negocio: intervalo entre compras consecutivas por cliente.
-    return """
-WITH sale_gaps AS (
-    SELECT
-        s.customer_id,
-        julianday(s.sale_date)
-        - julianday(LAG(s.sale_date) OVER (PARTITION BY s.customer_id ORDER BY s.sale_date)) AS gap_days
-    FROM sales s
-    WHERE s.status IN ('completed', 'entregada', 'facturada', 'cerrada')
-)
-SELECT ROUND(AVG(gap_days), 2) AS avg_repurchase_days
-FROM sale_gaps
-WHERE gap_days IS NOT NULL;
-""".strip()
-
-
 def _prepare_new_result_view() -> None:
     """Resetea estado visual de resultados para una búsqueda nueva."""
     st.session_state.pop("chart_x_col", None)
     st.session_state.pop("chart_y_col", None)
 
 
-def _render_query_result(result: Any, model_used: str | None = None) -> None:
+def _render_query_result(
+    result: Any,
+    model_used: str | None = None,
+    cache_stats: dict[str, Any] | None = None,
+) -> None:
     """Renderiza resultado SQL en paneles colapsables con gráfica primero."""
     with st.expander("Gráfica", expanded=True):
         _render_chart_options(result.rows)
@@ -544,12 +523,17 @@ def _render_query_result(result: Any, model_used: str | None = None) -> None:
             "sql": result.generated_sql,
             "rows": result.rows,
         }
+        if getattr(result, "deterministic_kpi", ""):
+            payload["kpi_deterministico"] = result.deterministic_kpi
+            payload["explicacion_kpi"] = getattr(result, "deterministic_explanation", "")
+        if cache_stats:
+            payload["cache"] = cache_stats
         if model_used:
             payload["modelo_usado"] = model_used
         st.json(payload)
 
 
-def _render_forecast_result(result: Any) -> None:
+def _render_forecast_result(result: Any, cache_stats: dict[str, Any] | None = None) -> None:
     st.subheader("Pronóstico de ventas")
     st.caption(
         f"Método: {result.method_label} | Horizonte: {result.horizon_months} meses | "
@@ -578,17 +562,59 @@ def _render_forecast_result(result: Any) -> None:
             st.dataframe(pretty_forecast_df, use_container_width=True)
 
     with st.expander("Salida JSON", expanded=False):
-        st.json(
-            {
-                "metodo": result.method,
-                "metodo_label": result.method_label,
-                "horizonte_meses": result.horizon_months,
-                "dimension": result.dimension,
-                "dimension_label": FORECAST_DIMENSIONS.get(result.dimension, result.dimension),
-                "filas_historicas_fuente": result.source_rows,
-                "pronostico": result.forecast_rows,
-            }
-        )
+        payload: dict[str, Any] = {
+            "metodo": result.method,
+            "metodo_label": result.method_label,
+            "horizonte_meses": result.horizon_months,
+            "dimension": result.dimension,
+            "dimension_label": FORECAST_DIMENSIONS.get(result.dimension, result.dimension),
+            "filas_historicas_fuente": result.source_rows,
+            "pronostico": result.forecast_rows,
+        }
+        if cache_stats:
+            payload["cache"] = cache_stats
+        st.json(payload)
+
+
+def _render_observability_panel(cache_stats: dict[str, Any] | None = None) -> None:
+    with st.expander("Observabilidad y alertas", expanded=False):
+        metrics = get_metrics_snapshot()
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Consultas", int(metrics.get("total_queries", 0)))
+        col2.metric("Éxito", f"{float(metrics.get('success_rate', 0.0)):.1f}%")
+        col3.metric("Latencia prom.", f"{float(metrics.get('avg_latency_ms', 0.0)):.1f} ms")
+        col4.metric("Latencia p95", f"{float(metrics.get('p95_latency_ms', 0.0)):.1f} ms")
+
+        if cache_stats:
+            st.markdown("**Cache SQL**")
+            cache_col1, cache_col2, cache_col3 = st.columns(3)
+            cache_col1.metric("Entradas", int(cache_stats.get("entries", 0)))
+            cache_col2.metric("Hits", int(cache_stats.get("hits", 0)))
+            cache_col3.metric("Hit ratio", f"{float(cache_stats.get('hit_ratio', 0.0)) * 100:.1f}%")
+
+        alerts = get_recent_alerts(limit=10)
+        st.markdown("**Alertas recientes**")
+        if not alerts:
+            st.success("Sin alertas recientes.")
+        else:
+            for alert in alerts:
+                st.warning(alert)
+
+        events = get_recent_events(limit=10)
+        if events:
+            st.markdown("**Eventos recientes**")
+            rows = [
+                {
+                    "timestamp": event.timestamp,
+                    "origen": event.source,
+                    "ok": "Sí" if event.success else "No",
+                    "cache": "Sí" if event.cached else "No",
+                    "latencia_ms": event.duration_ms,
+                    "filas": event.row_count,
+                }
+                for event in events
+            ]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _render_field_guide() -> None:
@@ -648,7 +674,9 @@ def _render_sidebar_controls(
     llm_model: str,
     max_rows: int,
     llm_timeout: int,
-) -> tuple[str, str, str, int, int, int, str, str]:
+    cache_ttl_seconds: int,
+    cache_max_entries: int,
+) -> tuple[str, str, str, int, int, int, int, int, str, str]:
     """Renderiza panel lateral con referencias y configuración."""
     with st.sidebar:
         st.markdown("## Panel lateral")
@@ -707,6 +735,26 @@ def _render_sidebar_controls(
                     step=5,
                 )
             )
+            cache_ttl_seconds = int(
+                st.number_input(
+                    "CACHE_TTL_SECONDS",
+                    min_value=0,
+                    max_value=3600,
+                    value=int(cache_ttl_seconds),
+                    step=10,
+                    help="TTL en segundos para cache de resultados SQL (0 deshabilita cache).",
+                )
+            )
+            cache_max_entries = int(
+                st.number_input(
+                    "CACHE_MAX_ENTRIES",
+                    min_value=1,
+                    max_value=50000,
+                    value=int(cache_max_entries),
+                    step=50,
+                    help="Número máximo de consultas cacheadas (LRU).",
+                )
+            )
             st.markdown("---")
             st.caption("Configuración de pronóstico")
             horizon_months = int(
@@ -736,6 +784,8 @@ def _render_sidebar_controls(
         llm_model,
         max_rows,
         llm_timeout,
+        cache_ttl_seconds,
+        cache_max_entries,
         horizon_months,
         forecast_method,
         forecast_dimension,
@@ -768,6 +818,8 @@ def main() -> None:
     llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     max_rows = _env_int("MAX_ROWS", 200)
     llm_timeout = _env_int("LLM_TIMEOUT_SECONDS", 180)
+    cache_ttl_seconds = _env_int("CACHE_TTL_SECONDS", 120)
+    cache_max_entries = _env_int("CACHE_MAX_ENTRIES", 500)
     schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "")
 
     default_question = "¿Cuántos clientes hay por estado?"
@@ -780,6 +832,8 @@ def main() -> None:
         llm_model,
         max_rows,
         llm_timeout,
+        cache_ttl_seconds,
+        cache_max_entries,
         horizon_months,
         forecast_method,
         forecast_dimension,
@@ -789,6 +843,8 @@ def main() -> None:
         llm_model=llm_model,
         max_rows=max_rows,
         llm_timeout=llm_timeout,
+        cache_ttl_seconds=cache_ttl_seconds,
+        cache_max_entries=cache_max_entries,
     )
 
     col1, col2 = st.columns([2, 1])
@@ -822,50 +878,15 @@ def main() -> None:
     if run and forecast_intent and not run_forecast:
         st.info("Se detectó intención de pronóstico; se usará el módulo de forecast en Python.")
 
-    repurchase_intent = _is_repurchase_time_intent(question.strip())
-    if run and repurchase_intent and not run_forecast:
-        st.info(
-            "Aplicando definición de negocio para recompra: "
-            "tiempo entre compras consecutivas por cliente."
-        )
-        with st.spinner("Procesando consulta..."):
-            try:
-                dwh = DwhClient.from_url(dwh_url.strip(), default_limit=int(max_rows))
-                repurchase_sql = _build_repurchase_time_sql()
-                rows = dwh.execute_select(repurchase_sql)
-                result = SimpleNamespace(
-                    question=question.strip(),
-                    generated_sql=repurchase_sql,
-                    rows=rows,
-                )
-            except Exception as exc:  # noqa: BLE001
-                message = str(exc)
-                st.error(f"Error ejecutando consulta: {message}")
-                if "no pg_hba.conf entry" in message:
-                    client_ip = _extract_pg_hba_ip(message)
-                    st.warning(
-                        "PostgreSQL bloqueo esta conexion por reglas de red (pg_hba.conf). "
-                        "Debes autorizar la IP origen del servidor cloud."
-                    )
-                    if client_ip:
-                        st.code(
-                            "host    vgd_dwh_migration    postgres    "
-                            f"{client_ip}/32    scram-sha-256"
-                        )
-                if "no encryption" in message:
-                    st.info(
-                        "El servidor reporta conexion sin cifrado. Si tu instancia exige SSL, "
-                        "usa una URL DWH con sslmode=require y habilita SSL en PostgreSQL."
-                    )
-                return
-
-        _render_query_result(result, model_used="Regla de negocio: recompra consecutiva")
-        return
-
     if run_forecast or (run and forecast_intent):
         with st.spinner("Calculando pronóstico de ventas..."):
             try:
-                dwh = DwhClient.from_url(dwh_url.strip(), default_limit=int(max_rows))
+                dwh = DwhClient.from_url(
+                    dwh_url.strip(),
+                    default_limit=int(max_rows),
+                    cache_ttl_seconds=int(cache_ttl_seconds),
+                    cache_max_entries=int(cache_max_entries),
+                )
                 forecast_result = compute_sales_forecast(
                     dwh_client=dwh,
                     horizon_months=int(horizon_months),
@@ -891,12 +912,16 @@ def main() -> None:
                         "El servidor reporta conexion sin cifrado. Si tu instancia exige SSL, "
                         "usa una URL DWH con sslmode=require y habilita SSL en PostgreSQL."
                     )
+                _render_observability_panel(cache_stats=dwh.get_cache_stats())
                 return
 
-        _render_forecast_result(forecast_result)
+        cache_stats = dwh.get_cache_stats()
+        _render_forecast_result(forecast_result, cache_stats=cache_stats)
+        _render_observability_panel(cache_stats=cache_stats)
         return
 
     with st.spinner("Procesando consulta..."):
+        cache_stats: dict[str, Any] | None = None
         try:
             agent = _build_agent(
                 dwh_url=dwh_url.strip(),
@@ -905,8 +930,11 @@ def main() -> None:
                 row_limit=int(max_rows),
                 llm_timeout_seconds=int(llm_timeout),
                 schema_hint=schema_hint,
+                cache_ttl_seconds=int(cache_ttl_seconds),
+                cache_max_entries=int(cache_max_entries),
             )
             result = agent.answer(question.strip())
+            cache_stats = agent._dwh.get_cache_stats()  # noqa: SLF001
         except Exception as exc:  # noqa: BLE001
             message = str(exc)
             st.error(f"Error ejecutando consulta: {message}")
@@ -934,10 +962,18 @@ def main() -> None:
                             row_limit=int(max_rows),
                             llm_timeout_seconds=int(llm_timeout),
                             schema_hint=schema_hint,
+                            cache_ttl_seconds=int(cache_ttl_seconds),
+                            cache_max_entries=int(cache_max_entries),
                         )
                         result = fallback_agent.answer(question.strip())
+                        cache_stats = fallback_agent._dwh.get_cache_stats()  # noqa: SLF001
                         st.success(f"Consulta recuperada usando fallback: {FALLBACK_LLM_MODEL}")
-                        _render_query_result(result, model_used=FALLBACK_LLM_MODEL)
+                        _render_query_result(
+                            result,
+                            model_used=FALLBACK_LLM_MODEL,
+                            cache_stats=cache_stats,
+                        )
+                        _render_observability_panel(cache_stats=cache_stats)
                         return
                     except Exception as fallback_exc:  # noqa: BLE001
                         st.error(f"Fallback falló: {fallback_exc}")
@@ -961,9 +997,11 @@ def main() -> None:
                     "El servidor reporta conexion sin cifrado. Si tu instancia exige SSL, "
                     "usa una URL DWH con sslmode=require y habilita SSL en PostgreSQL."
                 )
+            _render_observability_panel(cache_stats=cache_stats)
             return
 
-    _render_query_result(result)
+    _render_query_result(result, cache_stats=cache_stats)
+    _render_observability_panel(cache_stats=cache_stats)
 
 
 if __name__ == "__main__":
