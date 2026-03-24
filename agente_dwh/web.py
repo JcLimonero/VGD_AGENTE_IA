@@ -642,7 +642,7 @@ def main() -> None:
         _render_forecast_result(forecast_result)
         return
 
-    with st.spinner("Generando SQL y consultando DWH..."):
+    with st.spinner("Procesando consulta..."):
         try:
             agent = _build_agent(
                 dwh_url=dwh_url.strip(),
