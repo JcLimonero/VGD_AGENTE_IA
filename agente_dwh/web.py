@@ -891,10 +891,9 @@ def main() -> None:
     with col2:
         st.markdown("### Ejecutar")
         run = st.button("Consultar", type="primary", use_container_width=True)
-        run_forecast = st.button("Generar pronóstico", use_container_width=True)
 
-    if not run and not run_forecast:
-        st.info("Escribe tu pregunta y presiona 'Consultar' o 'Generar pronóstico'.")
+    if not run:
+        st.info("Escribe tu pregunta y presiona 'Consultar'.")
         return
 
     if not dwh_url.strip():
@@ -908,10 +907,10 @@ def main() -> None:
     schema_hint = _read_schema_hint(schema_hint_file) or DEFAULT_SCHEMA_HINT
 
     forecast_intent = is_forecast_intent(question.strip())
-    if run and forecast_intent and not run_forecast:
+    if run and forecast_intent:
         st.info("Se detectó intención de pronóstico; se usará el módulo de forecast en Python.")
 
-    if run_forecast or (run and forecast_intent):
+    if run and forecast_intent:
         with st.spinner("Calculando pronóstico de ventas..."):
             try:
                 dwh = DwhClient.from_url(
