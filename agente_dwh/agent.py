@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from .dwh import DwhClient
 from .llm_local import OllamaClient
 from .observability import StopWatch, record_query_event
-from .sql_guard import clean_sql_output, validate_read_only_sql
+from .sql_guard import clean_sql_output, validate_read_only_sql, validate_vgd_dwh_sql
 from .sql_vehicle_context import apply_vehicle_focus_sql_rewrites
 
 
@@ -81,6 +82,41 @@ Reglas obligatorias:
     y luego filtra o une sobre ese resultado.
 """
 
+SYSTEM_PROMPT_VGD = """Eres un asistente experto en SQL para analytics.
+Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
+
+OBLIGATORIO — dialecto: el bloque «Motor SQL objetivo» del mensaje de usuario define el motor.
+Si indica PostgreSQL, genera SOLO sintaxis válida en PostgreSQL. NO uses hábitos de MySQL (YEAR/MONTH/DAY como función,
+IFNULL), ni SQL Server (DATEADD, TOP), ni SQLite salvo que el mensaje lo pida explícitamente.
+
+Las preguntas del usuario están en español: interpreta la intención en español.
+
+FUENTE DE VERDAD — Esquema de referencia: el mensaje de usuario incluye el listado actual de tablas y columnas.
+Úsalo como única lista válida. No inventes tablas ni columnas que no aparezcan ahí.
+
+Catálogo de agencias (sucursales / concesionarios): la tabla maestra es agencies (columnas como "idAgency", name).
+Para «qué agencias hay», «cuántas agencias», «listado de agencias»: usa FROM agencies (y COUNT(*) o SELECT de "idAgency"/name).
+No uses customers para listar el catálogo de agencias: customers pertenece a una agencia vía "idAgency", pero el listado oficial es agencies.
+Solo tendría sentido DISTINCT "idAgency" FROM customers si el usuario pide explícitamente agencias que aparecen en clientes (subconjunto), no el catálogo completo.
+
+Ejemplos de forma (adapta nombres reales al esquema de referencia):
+- SELECT dim, COUNT(*)::bigint AS n FROM tabla_en_esquema GROUP BY dim ORDER BY n DESC;
+- SELECT COUNT(*)::bigint AS n FROM tabla_en_esquema;
+
+Reglas obligatorias:
+1) Solo una consulta SQL; sin markdown ni comentarios.
+2) Solo SELECT/WITH de lectura; sin INSERT/UPDATE/DELETE/DDL.
+3) Si no se puede resolver con el esquema dado: SELECT 'No se puede resolver con SQL' AS mensaje;
+4) FROM y GROUP BY coherentes: cada columna en GROUP BY debe salir del FROM o ser agregado válido.
+5) Identificadores camelCase entre comillas dobles en PostgreSQL cuando aplique.
+6) COUNT(*) o COUNT(col); nunca COUNT() vacío.
+7) Resta DATE - DATE es entero (días); no uses EXTRACT(EPOCH FROM (d1-d2)) mezclando mal tipos.
+8) EXTRACT(YEAR FROM col), no YEAR(col). COALESCE, no IFNULL.
+9) LAG/LEAD/ROW_NUMBER en SELECT o CTE, no como JOIN directo a la función de ventana.
+10) Si el historial fija un VIN u otro literal, úsalo tal cual; no inventes subconsultas sustitutas.
+11) Preguntas de catálogo de agencias → tabla agencies, no customers (ver bloque «Catálogo de agencias» arriba).
+"""
+
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
 Debes corregir una consulta SQL que falló al ejecutarse.
 
@@ -114,14 +150,54 @@ Reglas obligatorias:
 16) Si hay JOIN con LAG/LEAD/ROW_NUMBER: reescribe con CTE o subconsulta donde la ventana esté en el SELECT.
 """
 
+SQL_FIX_PROMPT_VGD = """Eres un asistente experto en corrección de SQL.
+Debes corregir una consulta SQL que falló al ejecutarse.
+
+El dialecto lo fija el bloque «Motor SQL objetivo» (PostgreSQL).
+La salida debe ser SQL ejecutable en PostgreSQL, no en MySQL ni SQL Server.
+
+Reglas obligatorias:
+1) Responde SOLO con SQL (sin markdown ni texto adicional).
+2) Mantén la intención original de la pregunta de negocio.
+3) Solo SELECT/CTE de lectura.
+4) Corrige usando únicamente tablas y columnas del «Esquema de referencia» del mensaje de usuario.
+5) Si el error es tabla o columna inexistente, elimina referencias que no estén en ese esquema.
+6) camelCase entre comillas dobles cuando el esquema lo muestre así.
+7) Corrige COUNT() vacío a COUNT(*) o COUNT(col).
+8) Fechas DATE: resta devuelve días enteros; EXTRACT(EPOCH ...) coherente con tipos.
+9) YEAR/MONTH/DAY: usa EXTRACT(YEAR FROM x), etc.
+10) Si la intención es listar o contar agencias (catálogo) y el SQL usó customers sin que el usuario pidiera «agencias con clientes» u operación similar, pasa a FROM agencies con "idAgency" y name según el esquema.
+"""
+
+
+def resolve_llm_profile(schema_hint_file: str = "", *, dwh_url: str | None = None) -> str:
+    """
+    Perfil de prompts. Por defecto «vgd» (DWH vgd_dwh_prod_migracion).
+    Usa AGENTE_DWH_LLM_PROFILE=default solo en entornos excepcionales (p. ej. otro esquema con SKIP_DB_NAME_CHECK).
+    """
+    env = os.getenv("AGENTE_DWH_LLM_PROFILE", "").strip().lower()
+    if env == "vgd":
+        return "vgd"
+    if env == "default":
+        return "default"
+    path = (schema_hint_file or "").lower()
+    if (
+        "schema_hint_dwh" in path
+        or "vgd_dwh_migracion" in path
+        or "schema_hint_vgd" in path
+    ):
+        return "vgd"
+    url = (dwh_url if dwh_url is not None else os.getenv("DWH_URL", "")).lower()
+    if "vgd_dwh" in url:
+        return "vgd"
+    return "vgd"
+
 
 @dataclass
 class QueryResult:
     question: str
     generated_sql: str
     rows: list[dict[str, Any]]
-    deterministic_kpi: str = ""
-    deterministic_explanation: str = ""
 
 
 class DwhAgent:
@@ -130,10 +206,19 @@ class DwhAgent:
         dwh_client: DwhClient,
         llm_client: OllamaClient,
         schema_hint: str = "",
+        *,
+        llm_profile: str = "vgd",
     ) -> None:
         self._dwh = dwh_client
         self._llm = llm_client
         self._schema_hint = schema_hint.strip()
+        self._llm_profile = llm_profile if llm_profile in ("default", "vgd") else "vgd"
+
+    def _system_prompt(self) -> str:
+        return SYSTEM_PROMPT_VGD if self._llm_profile == "vgd" else SYSTEM_PROMPT
+
+    def _sql_fix_system_prompt(self) -> str:
+        return SQL_FIX_PROMPT_VGD if self._llm_profile == "vgd" else SQL_FIX_PROMPT
 
     def _dialect_guidance(self) -> str:
         dialect = self._dwh.dialect_name
@@ -213,13 +298,14 @@ class DwhAgent:
         llm_question = "\n\n".join(parts)
         try:
             prompt = self._build_user_prompt(llm_question)
-            raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=SYSTEM_PROMPT)
+            raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=self._system_prompt())
             generated_sql = apply_vehicle_focus_sql_rewrites(
                 clean_sql_output(raw_output),
                 vehicle_focus,
             )
             validate_read_only_sql(generated_sql)
             try:
+                validate_vgd_dwh_sql(generated_sql)
                 rows = self._dwh.execute_select(generated_sql)
                 result = QueryResult(question=display_question, generated_sql=generated_sql, rows=rows)
                 record_query_event(
@@ -232,18 +318,21 @@ class DwhAgent:
                 )
                 return result
             except RuntimeError as first_exc:
-                # Reintento único: pedir al LLM una corrección basada en el error SQL.
+                # Reintento único: pedir al LLM una corrección basada en el error SQL (o prevalidación VGD).
                 fix_prompt = self._build_fix_prompt(
                     question=llm_question,
                     previous_sql=generated_sql,
                     execution_error=str(first_exc),
                 )
-                fixed_raw = self._llm.generar_sql(prompt=fix_prompt, system_prompt=SQL_FIX_PROMPT)
+                fixed_raw = self._llm.generar_sql(
+                    prompt=fix_prompt, system_prompt=self._sql_fix_system_prompt()
+                )
                 fixed_sql = apply_vehicle_focus_sql_rewrites(
                     clean_sql_output(fixed_raw),
                     vehicle_focus,
                 )
                 validate_read_only_sql(fixed_sql)
+                validate_vgd_dwh_sql(fixed_sql)
                 rows = self._dwh.execute_select(fixed_sql)
                 result = QueryResult(question=display_question, generated_sql=fixed_sql, rows=rows)
                 record_query_event(

@@ -113,7 +113,7 @@ agente-dwh --json "ventas por región en 2025"
 Con los datos compartidos, puedes ejecutar así desde una máquina autorizada por `pg_hba.conf`:
 
 ```bash
-export DWH_URL='postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration'
+export DWH_URL='postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_prod_migracion'
 export LLM_ENDPOINT='http://127.0.0.1:11434'
 export LLM_MODEL='qwen2.5-coder:7b'
 export LLM_TEMPERATURE='0.2'

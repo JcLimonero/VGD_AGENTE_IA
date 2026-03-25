@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
-from agente_dwh.sql_guard import clean_sql_output, validate_read_only_sql
+from agente_dwh.sql_guard import (
+    clean_sql_output,
+    validate_read_only_sql,
+    validate_vgd_dwh_sql,
+    vgd_execution_guard_enabled,
+)
 
 
 class SqlGuardTests(unittest.TestCase):
@@ -65,6 +72,29 @@ class SqlGuardTests(unittest.TestCase):
 
     def test_begin_date_column_ok(self) -> None:
         validate_read_only_sql("SELECT begin_date FROM customers WHERE id = 1")
+
+
+class VgdSqlGuardTests(unittest.TestCase):
+    def test_count_empty_rejected(self) -> None:
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_vgd_dwh_sql("SELECT COUNT() AS n FROM customers")
+        self.assertIn("COUNT", str(ctx.exception))
+
+    def test_customers_ok(self) -> None:
+        validate_vgd_dwh_sql("SELECT state, COUNT(*) AS n FROM customers GROUP BY state")
+
+    def test_literal_from_sales_not_false_positive(self) -> None:
+        validate_vgd_dwh_sql("SELECT 'FROM sales' AS hint FROM agencies")
+
+    def test_select_from_any_table_ok_if_count_valid(self) -> None:
+        validate_vgd_dwh_sql("SELECT state, COUNT(*) FROM sales GROUP BY state")
+
+    def test_vgd_execution_guard_enabled_by_default(self) -> None:
+        self.assertTrue(vgd_execution_guard_enabled(database_url="postgresql://localhost/postgres"))
+
+    @patch.dict(os.environ, {"AGENTE_DWH_DISABLE_SQL_GUARD": "1"}, clear=False)
+    def test_vgd_execution_guard_can_disable(self) -> None:
+        self.assertFalse(vgd_execution_guard_enabled())
 
 
 if __name__ == "__main__":

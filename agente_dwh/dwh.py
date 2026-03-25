@@ -13,7 +13,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from .observability import record_query_event
-from .sql_guard import validate_read_only_sql
+from .sql_guard import (
+    validate_read_only_sql,
+    validate_vgd_dwh_sql,
+    vgd_execution_guard_enabled,
+)
 
 
 @dataclass
@@ -57,6 +61,10 @@ class DwhClient:
         validate_read_only_sql(stripped)
         start = time.perf_counter()
         normalized_sql = self._normalize_sql_for_dialect(stripped)
+        if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+            database_url=str(self.engine.url)
+        ):
+            validate_vgd_dwh_sql(normalized_sql)
         sql_with_limit = self._inject_limit_if_missing(normalized_sql)
         cached_rows = self._get_cached_rows(sql_with_limit)
         if cached_rows is not None:

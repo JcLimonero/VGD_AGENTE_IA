@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Valida instalación: Python, dependencias, PostgreSQL, Ollama, dataset demo y tests opcionales.
+Valida instalación: Python, dependencias, PostgreSQL (vgd_dwh_prod_migracion), Ollama y lectura DWH.
 
 Uso desde la raíz del repo:
   source .venv/bin/activate
@@ -57,23 +57,27 @@ def main() -> int:
 
     import os
 
-    dwh = (os.getenv("DWH_URL") or "").strip()
+    from agente_dwh.config import (
+        effective_dwh_url,
+        normalize_dwh_url_string,
+        validate_dwh_url_targets_vgd_prod,
+    )
+
+    dwh = normalize_dwh_url_string(os.getenv("DWH_URL", ""))
     if not dwh:
         _fail("DWH_URL no definida (usa .env o export)")
         return 1
 
-    # Postgres
+    # Postgres + nombre de base (se corrige /postgres o BD omitida → vgd_dwh_prod_migracion)
     try:
-        from agente_dwh.demo_data import ensure_demo_postgres
+        validate_dwh_url_targets_vgd_prod(dwh)
+        from agente_dwh.dwh import DwhClient
 
-        counts = ensure_demo_postgres(dwh)
-        _ok(
-            "PostgreSQL + dataset demo: "
-            f"{counts['customers']} clientes, {counts['vehicles']} vehículos, "
-            f"{counts['sales']} ventas"
-        )
+        _probe = DwhClient.from_url(effective_dwh_url(dwh), default_limit=5)
+        _probe.execute_select("SELECT 1 AS ok")
+        _ok("PostgreSQL: DWH_URL válida y conexión a vgd_dwh_prod_migracion")
     except Exception as exc:  # noqa: BLE001
-        _fail(f"PostgreSQL / demo: {exc}")
+        _fail(f"PostgreSQL / DWH: {exc}")
         return 1
 
     # Ollama tags
@@ -136,7 +140,7 @@ def main() -> int:
 
     # Agente + LLM (con pista de esquema si SCHEMA_HINT_FILE está en .env)
     try:
-        from agente_dwh.agent import DwhAgent
+        from agente_dwh.agent import DwhAgent, resolve_llm_profile
         from agente_dwh.config import load_settings
         from agente_dwh.dwh import DwhClient
         from agente_dwh.llm_local import LocalOllamaClient
@@ -157,7 +161,12 @@ def main() -> int:
                 p = ROOT / hint_path
             if p.is_file():
                 schema_hint = p.read_text(encoding="utf-8")
-        agent = DwhAgent(dwh_client, llm, schema_hint=schema_hint)
+        agent = DwhAgent(
+            dwh_client,
+            llm,
+            schema_hint=schema_hint,
+            llm_profile=resolve_llm_profile(hint_path, dwh_url=cfg.dwh_url),
+        )
         result = agent.answer(
             "Usa exactamente el nombre de tabla customers. "
             "¿Cuántos clientes hay? Devuelve SQL con SELECT COUNT(*) FROM customers."

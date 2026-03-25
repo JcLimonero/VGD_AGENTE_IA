@@ -265,3 +265,42 @@ def validate_read_only_sql(sql: str) -> None:
     for pattern, label in _DANGEROUS_PATTERNS:
         if pattern.search(upper_masked):
             raise ValueError(f"La consulta contiene un patron no permitido: {label}")
+
+
+# Patrón: COUNT() sin expresión dentro del paréntesis (inválido en PostgreSQL).
+_COUNT_EMPTY_RE = re.compile(r"(?is)\bCOUNT\s*\(\s*\)")
+
+
+def vgd_execution_guard_enabled(*, database_url: str = "") -> bool:
+    """
+    Activa validación ligera antes de ejecutar en PostgreSQL (p. ej. COUNT() vacío).
+    Siempre activa en este producto: el DWH objetivo es vgd_dwh_prod_migracion.
+    """
+    import os
+
+    if os.getenv("AGENTE_DWH_DISABLE_SQL_GUARD", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return False
+    return True
+
+
+def validate_vgd_dwh_sql(sql: str) -> None:
+    """
+    Validación extra para SQL contra el DWH PostgreSQL: rechaza COUNT() vacío (inválido en PostgreSQL).
+
+    Usa el mismo enmascarado de literales que validate_read_only_sql para reducir falsos positivos.
+    Lanza RuntimeError con mensaje en español (el agente puede reenviarlo al LLM como corrección).
+    """
+    if not sql or not sql.strip():
+        return
+    without_comments = _strip_sql_comments(sql)
+    masked = _mask_quoted_for_scan(without_comments)
+
+    if _COUNT_EMPTY_RE.search(masked):
+        raise RuntimeError(
+            "Prevalidación SQL: COUNT() sin argumento no es válido en PostgreSQL; usa COUNT(*) o COUNT(nombre_columna)."
+        )

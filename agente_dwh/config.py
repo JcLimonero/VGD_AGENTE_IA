@@ -4,10 +4,109 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import unquote
+
+from sqlalchemy.engine.url import make_url
 
 
 class ConfigError(ValueError):
     """Error de configuracion del entorno."""
+
+
+# Única base DWH soportada en producción (nombre en la URL PostgreSQL).
+REQUIRED_DWH_DATABASE_NAME = "vgd_dwh_prod_migracion"
+
+
+def normalize_dwh_url_string(url: str) -> str:
+    """Quita espacios y comillas típicas de .env mal copiado."""
+    u = (url or "").strip()
+    if len(u) >= 2 and u[0] == u[-1] and u[0] in "\"'":
+        u = u[1:-1].strip()
+    return u
+
+
+def _db_name_check_skipped() -> bool:
+    v = os.getenv("AGENTE_DWH_SKIP_DB_NAME_CHECK", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def postgres_database_name_from_url(url: str) -> str | None:
+    """Devuelve el nombre de la base en una URL PostgreSQL, o None si no aplica."""
+    u = normalize_dwh_url_string(url)
+    if not u:
+        return None
+    lower = u.lower()
+    if not lower.startswith(
+        ("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")
+    ):
+        return None
+    try:
+        parsed = make_url(u)
+    except Exception:
+        return None
+    db = parsed.database
+    if not db:
+        return None
+    return unquote(str(db))
+
+
+def prepare_dwh_url(url: str) -> str:
+    """
+    Si la URL es PostgreSQL y la base es la por defecto «postgres» o falta en la URL,
+    sustituye por REQUIRED_DWH_DATABASE_NAME (caso típico: usuario postgres y plantilla .../postgres).
+    """
+    u = normalize_dwh_url_string(url)
+    if not u:
+        return u
+    lower = u.lower()
+    if not lower.startswith(
+        ("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")
+    ):
+        return u
+    try:
+        parsed = make_url(u)
+    except Exception:
+        return u
+    db = parsed.database
+    if db is None or (isinstance(db, str) and db.lower() == "postgres"):
+        return parsed.set(database=REQUIRED_DWH_DATABASE_NAME).render_as_string(
+            hide_password=False
+        )
+    return u
+
+
+def effective_dwh_url(url: str) -> str:
+    """URL lista para conectar: aplica prepare_dwh_url salvo que AGENTE_DWH_SKIP_DB_NAME_CHECK esté activo."""
+    u = normalize_dwh_url_string(url)
+    if not u:
+        return u
+    if _db_name_check_skipped():
+        return u
+    return prepare_dwh_url(u)
+
+
+def validate_dwh_url_targets_vgd_prod(dwh_url: str) -> None:
+    """
+    Comprueba que DWH_URL sea PostgreSQL y el nombre de base sea vgd_dwh_prod_migracion
+    (tras corregir automáticamente «postgres» o BD omitida).
+
+    Para entornos excepcionales (tests, réplicas con otro nombre): AGENTE_DWH_SKIP_DB_NAME_CHECK=1.
+    """
+    if _db_name_check_skipped():
+        return
+    prepared = effective_dwh_url(dwh_url)
+    name = postgres_database_name_from_url(prepared)
+    if name is None:
+        raise ConfigError(
+            "DWH_URL debe ser una URL PostgreSQL (postgresql:// o postgresql+psycopg://...) "
+            f"con base de datos «{REQUIRED_DWH_DATABASE_NAME}» "
+            "(o sin nombre de base / con «postgres» para sustitución automática)."
+        )
+    if name.lower() != REQUIRED_DWH_DATABASE_NAME.lower():
+        raise ConfigError(
+            f"DWH_URL apunta a la base «{name}»; este proyecto solo usa «{REQUIRED_DWH_DATABASE_NAME}». "
+            "Corrige la URL o, solo si es imprescindible, define AGENTE_DWH_SKIP_DB_NAME_CHECK=1."
+        )
 
 
 @dataclass(frozen=True)
@@ -27,11 +126,13 @@ class Config:
     @staticmethod
     def from_env() -> "Config":
         """Carga y valida configuracion minima."""
-        dwh_url = os.getenv("DWH_URL", "").strip()
+        dwh_url = normalize_dwh_url_string(os.getenv("DWH_URL", ""))
         if not dwh_url:
             raise ConfigError(
-                "Falta DWH_URL. Ejemplo: postgresql+psycopg://usuario:pass@host:5432/base"
+                f"Falta DWH_URL. Ejemplo: postgresql+psycopg://usuario:pass@host:5432/{REQUIRED_DWH_DATABASE_NAME}"
             )
+        validate_dwh_url_targets_vgd_prod(dwh_url)
+        dwh_url = effective_dwh_url(dwh_url)
 
         llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434").strip()
         llm_model = os.getenv("LLM_MODEL", "qwen2.5-coder:7b").strip()

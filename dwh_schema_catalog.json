@@ -1,0 +1,2351 @@
+{
+  "database": "vgd_dwh_prod_migracion",
+  "schema": "public",
+  "exported_for_llm": true,
+  "tables": {
+    "agencies": {
+      "row_count_estimate": 21,
+      "table_comment": "Catálogo maestro de agencias (concesionarios o sucursales). Clave de negocio visible: idAgency (varchar). Sirve para filtrar casi todos los hechos del DWH.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Identificador de agencia en el DMS (texto); FK en casi todas las tablas de hechos."
+        },
+        {
+          "name": "name",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "isActive",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "updated_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        }
+      ]
+    },
+    "agencies_config": {
+      "row_count_estimate": 20,
+      "table_comment": "Configuración operativa e integración por agencia: DMS, matriz, citas, tokens, RFC de la razón, API keys. Complementa agencies; no sustituye el catálogo de nombres.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "dms",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "IsMatriz",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "prefixQuery",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "connectionstring",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "allow_appointment",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "tokenAppoinments",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "rfc",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "apikey",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "updated_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        }
+      ]
+    },
+    "agencies_detail": {
+      "row_count_estimate": 20,
+      "table_comment": "Datos extendidos de la agencia: razón social, domicilio, mapas, teléfonos, WhatsApp por área (servicio, refacciones, ventas) y datos bancarios para cobro.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "name",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "legal_name",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "abbreviation",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "country",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "address",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "google_maps_link",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "switchboard_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "whatsapp_service_appointments_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "whatsapp_spares_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "whatsapp_sales_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "bank",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "account_bank",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "account_bank_cve",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "account_bank_name",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "updated_at",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        }
+      ]
+    },
+    "comissions": {
+      "row_count_estimate": 56003,
+      "table_comment": "Comisiones de venta con detalle comercial: pedido, factura, vehículo (VIN), cliente DMS, asesor y montos. Tabla analítica típica para desempeño de ventas y entregas.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "order_timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "order_status",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "invoice",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "invoice_data",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "delivery_date",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "brand",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "year",
+          "data_type": "character varying",
+          "character_maximum_length": 4,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "model",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "version",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "exterior_color",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "VIN del vehículo asociado a la comisión de venta."
+        },
+        {
+          "name": "plate",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "acquisition_value",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "dalers_value",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "ndClientDMS",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Cliente DMS asociado a la operación de comisión."
+        },
+        {
+          "name": "customer_name",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "idConsultant",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "consultant_name",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultant_mail",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "customer_vehicle": {
+      "row_count_estimate": 124638,
+      "table_comment": "Relación cliente–vehículo: qué VIN/placa está asociado a qué cliente (idAgency, ndClientDMS). Puente entre clientes e inventario o historial de unidad.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "ndClientDMS",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "customerName",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "VIN del vehículo ligado al cliente."
+        },
+        {
+          "name": "brand",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "model",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "version",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "year",
+          "data_type": "character varying",
+          "character_maximum_length": 4,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "plates",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "external_color",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "internal_color",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "insurance_expiration_date",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "insurance_number",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "insurance_company",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_insurance_info",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "customers": {
+      "row_count_estimate": 170274,
+      "table_comment": "Clientes del DMS por agencia. Clave natural compuesta: (idAgency, ndClientDMS). Persona física o moral; para morales el nombre comercial suele ir en bussines_name (name puede estar vacío). Incluye contacto, dirección y datos fiscales.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia a la que pertenece el cliente; forma clave natural con ndClientDMS."
+        },
+        {
+          "name": "ndClientDMS",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "ID del cliente en el DMS; único solo en combinación con idAgency."
+        },
+        {
+          "name": "name",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Nombre de persona física o contacto; puede ir vacío en persona moral."
+        },
+        {
+          "name": "paternal_surname",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "maternal_surname",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "bussines_name",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES",
+          "comment": "Razón social o nombre comercial (persona moral); usar para mostrar cliente PM."
+        },
+        {
+          "name": "rfc",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "curp",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "mobile_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "phone",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "other_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "assitant_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "office_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "mail",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "activitie",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "street",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "external_number",
+          "data_type": "character varying",
+          "character_maximum_length": 200,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "internal_number",
+          "data_type": "character varying",
+          "character_maximum_length": 200,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "zipcode",
+          "data_type": "character varying",
+          "character_maximum_length": 10,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "between_streets",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "settlement",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "deputation",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "country",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "city",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "state",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "birthay_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "salutation",
+          "data_type": "character varying",
+          "character_maximum_length": 10,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "gender",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "costumer_type",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "Est_Civil",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "appointment",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "allow_contact",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "ndSeller",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "seller_Name",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "seller_Email",
+          "data_type": "character varying",
+          "character_maximum_length": 256,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "clasification",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "customer_source",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "preferred_contact_method",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "last_sale",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "is_consolidated",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "inventory": {
+      "row_count_estimate": 141131,
+      "table_comment": "Inventario de unidades (vehículos en stock o disponibles) por agencia: VIN, modelo, color, estatus, fechas y valores. Hecho principal para preguntas de stock.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia donde está la unidad en inventario."
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Número de identificación vehicular (único por unidad)."
+        },
+        {
+          "name": "status",
+          "data_type": "character varying",
+          "character_maximum_length": 300,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "statusDescription",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "type",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "typeDescription",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "brand",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "year",
+          "data_type": "character varying",
+          "character_maximum_length": 4,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "model",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "version",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "exterior_color",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "interior_color",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "characteristics",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "km",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "amount",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sendedSalesForce",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "idSalesForce",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "resultSF",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sf_jsonRequest",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_sales_force",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sf_attempts",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_created",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_updated",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "invoices": {
+      "row_count_estimate": 62757,
+      "table_comment": "Facturas registradas en el DWH por agencia: importes, fechas, cliente DMS, orden y datos de facturación. Sirve para ingresos facturados y conciliación de alto nivel.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia emisora o de registro de la factura."
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "state",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "warranty_init_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "plates",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "payment_method",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sub_total",
+          "data_type": "double precision",
+          "character_maximum_length": null,
+          "numeric_precision": 53,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "accesories",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "amount_accesories",
+          "data_type": "double precision",
+          "character_maximum_length": null,
+          "numeric_precision": 53,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "financial_terms",
+          "data_type": "character varying",
+          "character_maximum_length": 300,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "invoice_reference",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "billing_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "amount_taxes",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "financial_institution",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "stage_name",
+          "data_type": "character varying",
+          "character_maximum_length": 200,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "delivery_date",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "cancelation_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "close_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "description",
+          "data_type": "character varying",
+          "character_maximum_length": 500,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sendedSalesForce",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "idSalesForce",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "resultSF",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sf_jsonRequest",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sf_attempts",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_sales_force",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "last_customer_seller": {
+      "row_count_estimate": 51658,
+      "table_comment": "Último vendedor o asesor de ventas asignado al cliente en el DMS (por agencia y ndClientDMS). Sirve para rotación comercial o seguimiento del ejecutivo actual.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "ndClientDMS",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "customerName",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "ndConsultant",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "order_timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultantName",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultantMail",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "orders": {
+      "row_count_estimate": 70532,
+      "table_comment": "Pedidos de unidades u órdenes de pedido en el DMS, ligados a cliente (idAgency, ndClientDMS) y agencia. Base para análisis de pipeline o volumen de pedidos.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia del pedido; FK a agencies."
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "invoice",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "amount",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "brand",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "model",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "version",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "year",
+          "data_type": "character varying",
+          "character_maximum_length": 4,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "external_color",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "internal_color",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "id_status",
+          "data_type": "character varying",
+          "character_maximum_length": 10,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "status_description",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "ndClientDMS",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Cliente DMS del pedido; unir a customers con idAgency."
+        },
+        {
+          "name": "ndConsultant",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultantName",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "phone_seller",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "delivery_date",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "services": {
+      "row_count_estimate": 286885,
+      "table_comment": "Servicios de taller/recepción en el DMS (órdenes de servicio o líneas de servicio según origen). No es la tabla de citas del demo: usar columnas reales del esquema. Ligado a agencia.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia donde se registró el servicio."
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "service_date",
+          "data_type": "date",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "service_type",
+          "data_type": "character varying",
+          "character_maximum_length": 200,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "service_to_perform",
+          "data_type": "character varying",
+          "character_maximum_length": 300,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "amount",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "km",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "status",
+          "data_type": "character varying",
+          "character_maximum_length": 300,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "stage_name",
+          "data_type": "character varying",
+          "character_maximum_length": 200,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sendedSalesForce",
+          "data_type": "smallint",
+          "character_maximum_length": null,
+          "numeric_precision": 16,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "idSalesForce",
+          "data_type": "character varying",
+          "character_maximum_length": 250,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "resultSF",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sf_jsonRequest",
+          "data_type": "text",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_sales_force",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "services_by_vin": {
+      "row_count_estimate": 414553,
+      "table_comment": "Hechos o resúmenes de servicio asociados al VIN (y agencia). Útil para historial de servicio por unidad sin pasar por otra tabla intermedia.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "invoice",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "vin",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "VIN sobre el que se reporta el servicio."
+        },
+        {
+          "name": "order_dms",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "IdStatus",
+          "data_type": "character varying",
+          "character_maximum_length": 10,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "statusDescription",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "idServiceType",
+          "data_type": "character varying",
+          "character_maximum_length": 10,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "serviceType",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "serviceTypeDescription",
+          "data_type": "character varying",
+          "character_maximum_length": 500,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "serviceTypeDetail",
+          "data_type": "character varying",
+          "character_maximum_length": 500,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "amount",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "km",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "startDateTime",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "endDateTime",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "ndConsultant",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultantName",
+          "data_type": "character varying",
+          "character_maximum_length": 100,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "consultant_phone",
+          "data_type": "character varying",
+          "character_maximum_length": 20,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    },
+    "spares": {
+      "row_count_estimate": 66260,
+      "table_comment": "Refacciones o piezas (catálogo/movimientos de spare parts en el DMS). Incluye existencias, precios y referencias; granularidad por part_number y agencia.",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "NO"
+        },
+        {
+          "name": "idAgency",
+          "data_type": "character varying",
+          "character_maximum_length": 50,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "NO",
+          "comment": "Agencia dueña del inventario o catálogo de refacción."
+        },
+        {
+          "name": "bussines_name",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "agency",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "warehouse_number",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "sku",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "part_number",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "description",
+          "data_type": "character varying",
+          "character_maximum_length": 500,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "desctiption_ext",
+          "data_type": "character varying",
+          "character_maximum_length": 500,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "cost",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "location",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "family",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "available",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "reserved",
+          "data_type": "integer",
+          "character_maximum_length": null,
+          "numeric_precision": 32,
+          "numeric_scale": 0,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "public_cost",
+          "data_type": "numeric",
+          "character_maximum_length": null,
+          "numeric_precision": 18,
+          "numeric_scale": 2,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "first_purchase",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "last_purchase",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "last_sale",
+          "data_type": "character varying",
+          "character_maximum_length": 255,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_dms",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp",
+          "data_type": "timestamp without time zone",
+          "character_maximum_length": null,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        },
+        {
+          "name": "timestamp_hex",
+          "data_type": "character varying",
+          "character_maximum_length": 150,
+          "numeric_precision": null,
+          "numeric_scale": null,
+          "is_nullable": "YES"
+        }
+      ]
+    }
+  },
+  "foreign_keys": [
+    {
+      "from_table": "agencies_config",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_agencies_config_idagency"
+    },
+    {
+      "from_table": "agencies_detail",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_agencies_detail_idagency"
+    },
+    {
+      "from_table": "comissions",
+      "definition": "FOREIGN KEY (\"idAgency\", \"ndClientDMS\") REFERENCES customers(\"idAgency\", \"ndClientDMS\")",
+      "name": "fk_comissions_customers_natural"
+    },
+    {
+      "from_table": "comissions",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_comissions_idagency"
+    },
+    {
+      "from_table": "customer_vehicle",
+      "definition": "FOREIGN KEY (\"idAgency\", \"ndClientDMS\") REFERENCES customers(\"idAgency\", \"ndClientDMS\")",
+      "name": "fk_customer_vehicle_customers_natural"
+    },
+    {
+      "from_table": "customer_vehicle",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_customer_vehicle_idagency"
+    },
+    {
+      "from_table": "customers",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_customers_idagency"
+    },
+    {
+      "from_table": "inventory",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_inventory_idagency"
+    },
+    {
+      "from_table": "invoices",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_invoices_idagency"
+    },
+    {
+      "from_table": "last_customer_seller",
+      "definition": "FOREIGN KEY (\"idAgency\", \"ndClientDMS\") REFERENCES customers(\"idAgency\", \"ndClientDMS\")",
+      "name": "fk_last_customer_seller_customers_natural"
+    },
+    {
+      "from_table": "last_customer_seller",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_last_customer_seller_idagency"
+    },
+    {
+      "from_table": "orders",
+      "definition": "FOREIGN KEY (\"idAgency\", \"ndClientDMS\") REFERENCES customers(\"idAgency\", \"ndClientDMS\")",
+      "name": "fk_orders_customers_natural"
+    },
+    {
+      "from_table": "orders",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_orders_idagency"
+    },
+    {
+      "from_table": "services",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_services_idagency"
+    },
+    {
+      "from_table": "services_by_vin",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_services_by_vin_idagency"
+    },
+    {
+      "from_table": "spares",
+      "definition": "FOREIGN KEY (\"idAgency\") REFERENCES agencies(\"idAgency\")",
+      "name": "fk_spares_idagency"
+    }
+  ]
+}

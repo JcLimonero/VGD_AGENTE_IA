@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from .agent import DwhAgent
+from .agent import DwhAgent, resolve_llm_profile
 from .config import ConfigError, load_settings
 from .dwh import DwhClient
 from .llm_local import LocalOllamaClient
@@ -69,7 +69,14 @@ def main() -> None:
             temperature=settings.llm_temperature,
         )
         schema_hint = _load_schema_hint(settings.schema_hint_file)
-        agent = DwhAgent(dwh_client=dwh, llm_client=llm, schema_hint=schema_hint)
+        agent = DwhAgent(
+            dwh_client=dwh,
+            llm_client=llm,
+            schema_hint=schema_hint,
+            llm_profile=resolve_llm_profile(
+                settings.schema_hint_file, dwh_url=settings.dwh_url
+            ),
+        )
         result = agent.answer(question=question)
     except ConfigError as exc:
         print(f"Error de configuración: {exc}", file=sys.stderr)
@@ -85,9 +92,6 @@ def main() -> None:
             "rows": result.rows,
             "cache": dwh.get_cache_stats(),
         }
-        if result.deterministic_kpi:
-            payload["kpi_deterministico"] = result.deterministic_kpi
-            payload["explicacion_kpi"] = result.deterministic_explanation
         alerts = get_recent_alerts(limit=5)
         if alerts:
             payload["alertas"] = alerts
@@ -102,9 +106,6 @@ def main() -> None:
 
     print("=== SQL generado ===")
     print(result.generated_sql)
-    if result.deterministic_kpi:
-        print(f"(KPI determinístico: {result.deterministic_kpi})")
-        print(result.deterministic_explanation)
     print()
     print("=== Resultado ===")
     rows = result.rows

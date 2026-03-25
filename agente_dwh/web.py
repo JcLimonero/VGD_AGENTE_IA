@@ -20,8 +20,14 @@ import streamlit as st
 import pandas as pd
 
 try:
-    from .agent import DwhAgent
-    from .demo_data import ensure_demo_postgres
+    from .agent import DwhAgent, resolve_llm_profile
+    from .config import (
+        REQUIRED_DWH_DATABASE_NAME,
+        ConfigError,
+        effective_dwh_url,
+        normalize_dwh_url_string,
+        validate_dwh_url_targets_vgd_prod,
+    )
     from .dwh import DwhClient
     from .forecast import (
         FORECAST_DIMENSIONS,
@@ -41,8 +47,14 @@ except ImportError:
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    from agente_dwh.agent import DwhAgent
-    from agente_dwh.demo_data import ensure_demo_postgres
+    from agente_dwh.agent import DwhAgent, resolve_llm_profile
+    from agente_dwh.config import (
+        REQUIRED_DWH_DATABASE_NAME,
+        ConfigError,
+        effective_dwh_url,
+        normalize_dwh_url_string,
+        validate_dwh_url_targets_vgd_prod,
+    )
     from agente_dwh.dwh import DwhClient
     from agente_dwh.forecast import (
         FORECAST_DIMENSIONS,
@@ -56,7 +68,7 @@ except ImportError:
     from agente_dwh.llm_local import LLMError, LocalOllamaClient
     from agente_dwh.observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
 
-DEFAULT_DWH_URL = os.getenv("DEMO_DWH_URL") or os.getenv("DWH_URL") or ""
+DEFAULT_DWH_URL = normalize_dwh_url_string(os.getenv("DWH_URL", ""))
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen2.5-coder:7b"
 FALLBACK_LLM_MODEL = "qwen2.5:7b"
@@ -444,6 +456,8 @@ def _build_agent(
     cache_ttl_seconds: int,
     cache_max_entries: int,
     llm_temperature: float = 0.2,
+    *,
+    llm_profile: str = "default",
 ) -> DwhAgent:
     dwh = DwhClient.from_url(
         dwh_url,
@@ -457,7 +471,12 @@ def _build_agent(
         timeout_seconds=llm_timeout_seconds,
         temperature=llm_temperature,
     )
-    return DwhAgent(dwh_client=dwh, llm_client=llm, schema_hint=schema_hint)
+    return DwhAgent(
+        dwh_client=dwh,
+        llm_client=llm,
+        schema_hint=schema_hint,
+        llm_profile=llm_profile,
+    )
 
 
 SESSION_KEY_CACHED_DW_AGENT = "cached_dw_agent_instance"
@@ -472,6 +491,7 @@ def _get_session_agent(
     row_limit: int,
     llm_timeout_seconds: int,
     schema_hint: str,
+    schema_hint_file: str,
     cache_ttl_seconds: int,
     cache_max_entries: int,
     llm_temperature: float,
@@ -480,6 +500,7 @@ def _get_session_agent(
     Reutiliza DwhAgent en la sesión si la configuración no cambió: mantiene pool SQLAlchemy y caché de
     resultados del DWH entre consultas (menos latencia en repetidas / mismos SQL).
     """
+    llm_profile = resolve_llm_profile(schema_hint_file, dwh_url=dwh_url)
     cfg = (
         dwh_url.strip(),
         llm_endpoint.strip(),
@@ -490,6 +511,7 @@ def _get_session_agent(
         int(cache_ttl_seconds),
         int(cache_max_entries),
         round(float(llm_temperature), 6),
+        llm_profile,
     )
     if st.session_state.get(SESSION_KEY_CACHED_DW_AGENT_CFG) != cfg:
         st.session_state[SESSION_KEY_CACHED_DW_AGENT_CFG] = cfg
@@ -503,6 +525,7 @@ def _get_session_agent(
             cache_ttl_seconds=cfg[6],
             cache_max_entries=cfg[7],
             llm_temperature=cfg[8],
+            llm_profile=cfg[9],
         )
     return st.session_state[SESSION_KEY_CACHED_DW_AGENT]
 
@@ -733,6 +756,28 @@ def _append_multi_vin_summary_line(text: str, rows: list[dict[str, Any]]) -> str
     return f"{text.rstrip()}\n\n{line}"
 
 
+def _heuristic_agency_catalog_summary(rows: list[dict[str, Any]]) -> str | None:
+    """Resumen fiable cuando el resultado tiene forma de catálogo agencies (conteo o listado id/nombre)."""
+    if not rows:
+        return None
+    keys_lower = {str(k).lower() for k in rows[0].keys()}
+    if "total_agencias" in keys_lower and len(rows) == 1:
+        r0 = rows[0]
+        for k in r0:
+            if str(k).lower() == "total_agencias":
+                val = r0[k]
+                return (
+                    f"En el catálogo **agencies** hay **{val}** agencias (conteo directo en base de datos)."
+                )
+    if "id_agencia" in keys_lower and "nombre" in keys_lower:
+        n = len(rows)
+        return (
+            f"Catálogo **agencies**: se listan **{n}** agencias en este resultado (hasta 500 por consulta). "
+            "Usa **Ver datos** para revisar id y nombre de cada una."
+        )
+    return None
+
+
 def _heuristic_answer_summary(rows: list[dict[str, Any]]) -> str | None:
     """
     Resumen sin LLM. Devuelve None si conviene delegar al modelo (muchas filas o muchas columnas).
@@ -807,6 +852,10 @@ def _compute_hybrid_answer_summary(
 ) -> str:
     if not rows:
         return _append_multi_vin_summary_line(_heuristic_answer_summary(rows) or "", rows)
+
+    agency_txt = _heuristic_agency_catalog_summary(rows)
+    if agency_txt:
+        return _append_multi_vin_summary_line(agency_txt, rows)
 
     if len(rows) == 1 and llm is not None:
         try:
@@ -1426,10 +1475,108 @@ _DISAMBIGUATION_RULES: list[dict[str, Any]] = [
     },
 ]
 
+# Mismas reglas de disparo, pero contextos alineados al DWH VGD (sin tabla sales ni demo).
+_DISAMBIGUATION_RULES_VGD: list[dict[str, Any]] = [
+    {
+        "id": "cost",
+        "triggers": _DISAMBIGUATION_RULES[0]["triggers"],
+        "excludes": _DISAMBIGUATION_RULES[0]["excludes"],
+        "prompt": _DISAMBIGUATION_RULES[0]["prompt"],
+        "options": [
+            {
+                "label": "Costo del servicio / reparación",
+                "context": (
+                    "El usuario pregunta por el costo de un servicio o reparación. "
+                    "Usa la tabla services y las columnas de monto o costo que aparezcan en el esquema de referencia. "
+                    "La tabla sales NO existe en este DWH: no la uses."
+                ),
+            },
+            {
+                "label": "Monto de la operación comercial (pedido / comisión / factura)",
+                "context": (
+                    "El usuario pregunta por el monto de una venta u operación comercial. "
+                    "Usa comissions (p. ej. acquisition_value, dalers_value), invoices u orders según columnas del esquema. "
+                    "Nunca uses la tabla sales."
+                ),
+            },
+            {
+                "label": "Prima u otro costo de seguro",
+                "context": (
+                    "El usuario pregunta por costos de seguro. "
+                    "Si el esquema de referencia no lista tablas de pólizas, indícalo en SQL o usa solo tablas listadas. "
+                    "No inventes insurance_policies ni sales."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "date_ambiguous",
+        "triggers": _DISAMBIGUATION_RULES[1]["triggers"],
+        "excludes": _DISAMBIGUATION_RULES[1]["excludes"],
+        "prompt": _DISAMBIGUATION_RULES[1]["prompt"],
+        "options": [
+            {
+                "label": "Fecha de pedido u orden comercial",
+                "context": (
+                    "El usuario pregunta por la fecha de pedido u orden. "
+                    "Usa comissions.order_timestamp, orders u otras fechas del esquema VGD. "
+                    "No uses sale_date ni la tabla sales (no existe)."
+                ),
+            },
+            {
+                "label": "Fecha de servicio realizado",
+                "context": (
+                    "El usuario pregunta por la fecha de un servicio realizado. "
+                    "Usa la tabla services y las columnas de fecha del esquema. "
+                    "No uses service_appointments si no está en el esquema de referencia."
+                ),
+            },
+            {
+                "label": "Fecha de facturación",
+                "context": (
+                    "El usuario pregunta por fecha de factura. "
+                    "Usa invoices, comissions.invoice_data u order_timestamp según el esquema. No uses sales."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "status_ambiguous",
+        "triggers": _DISAMBIGUATION_RULES[2]["triggers"],
+        "excludes": _DISAMBIGUATION_RULES[2]["excludes"],
+        "prompt": _DISAMBIGUATION_RULES[2]["prompt"],
+        "options": [
+            {
+                "label": "Estado geográfico del cliente",
+                "context": (
+                    "El usuario pregunta por el estado geográfico (entidad federativa). "
+                    "Usa la tabla customers y su columna state."
+                ),
+            },
+            {
+                "label": "Estatus del pedido u orden comercial",
+                "context": (
+                    "El usuario pregunta por el estatus de una venta o pedido operativo. "
+                    "Usa comissions.order_status y/o columnas de estatus en orders o invoices del esquema VGD. "
+                    "No uses sales.status ni la tabla sales."
+                ),
+            },
+            {
+                "label": "Estatus del servicio en taller",
+                "context": (
+                    "El usuario pregunta por el estatus de un servicio. "
+                    "Usa columnas de estatus en la tabla services según el esquema de referencia."
+                ),
+            },
+        ],
+    },
+]
 
-def _check_disambiguation(question: str) -> dict[str, Any] | None:
+
+def _check_disambiguation(question: str, *, llm_profile: str = "default") -> dict[str, Any] | None:
     """Devuelve la primera regla de desambiguación que aplique, o None."""
-    for rule in _DISAMBIGUATION_RULES:
+    rules = _DISAMBIGUATION_RULES_VGD if llm_profile == "vgd" else _DISAMBIGUATION_RULES
+    for rule in rules:
         if any(re.search(p, question) for p in rule["triggers"]):
             if not any(re.search(p, question) for p in rule.get("excludes", [])):
                 return rule
@@ -1512,12 +1659,38 @@ def _vehicle_focus_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     return out or None
 
 
-def _vehicle_focus_to_prompt_extra(focus: dict[str, Any] | None) -> str:
+def _vehicle_focus_to_prompt_extra(
+    focus: dict[str, Any] | None, *, llm_profile: str = "default"
+) -> str:
     if not focus:
         return ""
     lines = [
         "Contexto de seguimiento (aplica a la pregunta siguiente esta misma unidad si no indicas otra):",
     ]
+    if llm_profile == "vgd":
+        if focus.get("vin"):
+            lines.append(f"- vin: {focus['vin']}")
+        if focus.get("plate"):
+            lines.append(f"- placa (columna plate en tablas con unidad): {focus['plate']}")
+        if focus.get("vehicle_id") is not None:
+            lines.append(
+                f"- id numérico de contexto (no asumas tabla vehicles; filtra en tablas del esquema VGD): {focus['vehicle_id']}"
+            )
+        lines.append(
+            "OBLIGATORIO (DWH VGD): filtra con literales usando vin y/o plate en tablas que existan en el esquema "
+            "(p. ej. inventory, comissions, customer_vehicle, services_by_vin). "
+            "No uses tabla vehicles ni sales (no existen en este DWH)."
+        )
+        lines.append(
+            "PROHIBIDO: subconsultas para inventar otro VIN; no uses sales, service_appointments ni insurance_policies "
+            "salvo que aparezcan en el esquema de referencia."
+        )
+        lines.append(
+            "PROHIBIDO: literales ficticios ('ultimo_vin', 'last_vin', 'esta_unidad'). "
+            "Incluye columna vin en el SELECT cuando la pregunta sea por unidad."
+        )
+        return "\n".join(lines)
+
     if focus.get("vehicle_id") is not None:
         lines.append(f"- vehicle_id (PK en tabla vehicles): {focus['vehicle_id']}")
     if focus.get("vin"):
@@ -1574,30 +1747,43 @@ def _all_rows_same_agency_focus(rows: list[dict[str, Any]]) -> dict[str, Any] | 
     return first
 
 
-def _agency_focus_to_prompt_extra(focus: dict[str, Any] | None) -> str:
+def _agency_focus_to_prompt_extra(
+    focus: dict[str, Any] | None, *, llm_profile: str = "default"
+) -> str:
     if not focus:
         return ""
     lines = [
         "Contexto de seguimiento (misma agencia / sucursal para la pregunta siguiente si no indicas otra):",
-        f"- Identificador de agencia (p. ej. idAgency, agency_id en tu esquema): {focus['id_agency']}",
+        f"- Identificador de agencia (en VGD suele ser la columna \"idAgency\"): {focus['id_agency']}",
     ]
     if focus.get("agency_label"):
         lines.append(f"- Nombre o etiqueta de agencia: {focus['agency_label']}")
-    lines.append(
-        "Filtra o haz JOIN en las tablas que tengan ese identificador (p. ej. customers.idAgency) "
-        "cuando la pregunta sea sobre clientes, ventas o métricas de esa agencia."
-    )
+    if llm_profile == "vgd":
+        lines.append(
+            "Filtra con WHERE tabla.\"idAgency\" = '<valor exacto de arriba>' (entre comillas dobles el nombre de columna). "
+            "Catálogo de agencias: tabla agencies. Para contar agencias del catálogo usa SELECT COUNT(*) FROM agencies; "
+            "no uses la tabla sales."
+        )
+    else:
+        lines.append(
+            "Filtra o haz JOIN en las tablas que tengan ese identificador (p. ej. customers.idAgency) "
+            "cuando la pregunta sea sobre clientes, ventas o métricas de esa agencia."
+        )
     return "\n".join(lines)
 
 
 def _build_follow_up_prompt_extra() -> str:
+    prof = resolve_llm_profile(
+        os.getenv("SCHEMA_HINT_FILE", ""),
+        dwh_url=effective_dwh_url(normalize_dwh_url_string(os.getenv("DWH_URL", ""))),
+    )
     chunks: list[str] = []
     v = st.session_state.get(SESSION_KEY_FOCUS_VEHICLE)
     a = st.session_state.get(SESSION_KEY_FOCUS_AGENCY)
     if v:
-        chunks.append(_vehicle_focus_to_prompt_extra(v))
+        chunks.append(_vehicle_focus_to_prompt_extra(v, llm_profile=prof))
     if a:
-        chunks.append(_agency_focus_to_prompt_extra(a))
+        chunks.append(_agency_focus_to_prompt_extra(a, llm_profile=prof))
     return "\n\n".join(c for c in chunks if c.strip())
 
 
@@ -1805,9 +1991,6 @@ def _render_query_result(
                 "sql": result.generated_sql,
                 "rows": result.rows,
             }
-            if getattr(result, "deterministic_kpi", ""):
-                payload["kpi_deterministico"] = result.deterministic_kpi
-                payload["explicacion_kpi"] = getattr(result, "deterministic_explanation", "")
             if cache_stats:
                 payload["cache"] = cache_stats
             if model_used:
@@ -1956,7 +2139,7 @@ def _render_field_guide_content() -> None:
 
 
 def _render_sidebar_controls(
-    demo_info: dict[str, int],
+    dwh_sidebar_md: str,
     dwh_url: str,
     llm_endpoint: str,
     llm_model: str,
@@ -1970,9 +2153,9 @@ def _render_sidebar_controls(
     with st.sidebar:
         st.markdown("## Panel lateral")
 
-        with st.expander("Ayuda y estado del demo", expanded=False):
+        with st.expander("Ayuda y estado del DWH", expanded=False):
             st.markdown(
-                "**Modo demo (presentación)** — Con **Modo desarrollo** desactivado en el menú lateral, "
+                "**Modo presentación** — Con **Modo desarrollo** desactivado en el menú lateral, "
                 "solo verás gráficas y tablas de resultados (sin SQL ni JSON). Actívalo para depurar consultas."
             )
             st.markdown(
@@ -1984,15 +2167,8 @@ def _render_sidebar_controls(
                 "En modo chat, escribe abajo en el área principal; el historial se envía al modelo en cada nueva pregunta."
             )
             st.divider()
-            st.markdown("**Resumen del dataset cargado**")
-            st.markdown(
-                f"- {demo_info['customers']} clientes\n"
-                f"- {demo_info['vehicles']} vehículos\n"
-                f"- {demo_info['sales']} ventas\n"
-                f"- {demo_info['services']} servicios\n"
-                f"- {demo_info['service_appointments']} citas de servicio\n"
-                f"- {demo_info['insurance_policies']} pólizas"
-            )
+            st.markdown("**Conexión**")
+            st.markdown(dwh_sidebar_md)
             st.divider()
             st.markdown("**Guía de campos disponibles**")
             _render_field_guide_content()
@@ -2052,7 +2228,27 @@ def _render_sidebar_controls(
             default_dimension = "total"
 
         with st.expander("Configuración", expanded=False):
-            dwh_url = st.text_input("DWH_URL", value=dwh_url)
+            env_dwh = effective_dwh_url(
+                normalize_dwh_url_string(os.getenv("DWH_URL", dwh_url))
+            )
+            _dwh_widget_key = "sidebar_dwh_url"
+            if _dwh_widget_key not in st.session_state:
+                st.session_state[_dwh_widget_key] = env_dwh
+            if st.button(
+                "Restaurar DWH_URL desde .env",
+                key="reset_dwh_url_from_env",
+                help="Streamlit recuerda el texto del campo aunque corrijas .env; usa esto para volver al valor del entorno.",
+            ):
+                st.session_state[_dwh_widget_key] = env_dwh
+                st.rerun()
+            dwh_url = st.text_input(
+                "DWH_URL",
+                key=_dwh_widget_key,
+                help=(
+                    "Si la URL termina en /postgres o sin nombre de base, se sustituye automáticamente por "
+                    f"/{REQUIRED_DWH_DATABASE_NAME}. Usuario y clave van antes del @."
+                ),
+            )
             llm_endpoint = st.text_input(
                 "LLM_ENDPOINT",
                 value=llm_endpoint,
@@ -2318,23 +2514,38 @@ def main() -> None:
     )
     st.title("Panel de Inteligencia Comercial")
 
-    if not DEFAULT_DWH_URL.strip() or "postgresql" not in DEFAULT_DWH_URL.lower():
+    if not DEFAULT_DWH_URL:
         st.error(
-            "Define DEMO_DWH_URL o DWH_URL con una URL PostgreSQL "
-            "(por ejemplo postgresql+psycopg://usuario:clave@127.0.0.1:5432/nombre_bd)."
+            f"Define DWH_URL en .env con PostgreSQL y base «{REQUIRED_DWH_DATABASE_NAME}», "
+            "por ejemplo: postgresql+psycopg://usuario:clave@host:5432/vgd_dwh_prod_migracion"
         )
         st.stop()
+    if "postgresql" not in DEFAULT_DWH_URL.lower():
+        st.error("DWH_URL debe ser una URL PostgreSQL (postgresql:// o postgresql+psycopg://...).")
+        st.stop()
     try:
-        demo_info = ensure_demo_postgres(DEFAULT_DWH_URL.strip())
+        validate_dwh_url_targets_vgd_prod(DEFAULT_DWH_URL)
+    except ConfigError as exc:
+        st.error(str(exc))
+        st.stop()
+    try:
+        DwhClient.from_url(
+            effective_dwh_url(DEFAULT_DWH_URL), default_limit=5
+        ).execute_select("SELECT 1 AS ok")
     except Exception as exc:
         st.error(
-            f"No se pudo preparar la base demo en PostgreSQL: {exc}. "
-            "Comprueba que el servidor esté en marcha y que la URL sea correcta."
+            f"No se pudo conectar al DWH ({REQUIRED_DWH_DATABASE_NAME}): {exc}. "
+            "Comprueba red, credenciales y que PostgreSQL acepte la conexión."
         )
         st.stop()
 
+    dwh_sidebar_md = (
+        f"**Base:** `{REQUIRED_DWH_DATABASE_NAME}` (PostgreSQL). "
+        "Sin carga de dataset demo: todas las consultas usan el DWH configurado en **DWH_URL**."
+    )
+
     # Configuracion fija por defecto (puede sobreescribirse por variables de entorno).
-    dwh_url = os.getenv("DWH_URL", DEFAULT_DWH_URL)
+    dwh_url = normalize_dwh_url_string(os.getenv("DWH_URL", DEFAULT_DWH_URL))
     llm_endpoint = os.getenv("LLM_ENDPOINT", DEFAULT_LLM_ENDPOINT)
     llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     max_rows = _env_int("MAX_ROWS", 200)
@@ -2361,7 +2572,7 @@ def main() -> None:
         forecast_method,
         forecast_dimension,
     ) = _render_sidebar_controls(
-        demo_info=demo_info,
+        dwh_sidebar_md=dwh_sidebar_md,
         dwh_url=dwh_url,
         llm_endpoint=llm_endpoint,
         llm_model=llm_model,
@@ -2371,6 +2582,8 @@ def main() -> None:
         cache_ttl_seconds=cache_ttl_seconds,
         cache_max_entries=cache_max_entries,
     )
+
+    dwh_url = effective_dwh_url(dwh_url)
 
     natural_chat = st.session_state.get("natural_chat_mode", True)
     effective_question = ""
@@ -2404,7 +2617,12 @@ def main() -> None:
 
     # --- Desambiguación: comprobar si la pregunta nueva es ambigua ---
     if should_run and not st.session_state.pop(SESSION_KEY_DISAMBIG_DONE, False):
-        disambig_rule = _check_disambiguation(effective_question)
+        _ui_llm_profile = resolve_llm_profile(
+            schema_hint_file, dwh_url=dwh_url.strip()
+        )
+        disambig_rule = _check_disambiguation(
+            effective_question, llm_profile=_ui_llm_profile
+        )
         if disambig_rule:
             st.session_state[SESSION_KEY_DISAMBIG] = {
                 "question": effective_question,
@@ -2455,6 +2673,11 @@ def main() -> None:
     if not dwh_url.strip():
         st.error("Debes indicar DWH_URL.")
         return
+    try:
+        validate_dwh_url_targets_vgd_prod(dwh_url.strip())
+    except ConfigError as exc:
+        st.error(str(exc))
+        return
 
     _prepare_new_result_view()
     if natural_chat:
@@ -2494,7 +2717,7 @@ def main() -> None:
                     )
                     if client_ip:
                         st.code(
-                            "host    vgd_dwh_migration    postgres    "
+                            "host    vgd_dwh_prod_migracion    postgres    "
                             f"{client_ip}/32    scram-sha-256"
                         )
                 if "no encryption" in message:
@@ -2541,6 +2764,7 @@ def main() -> None:
                 row_limit=int(max_rows),
                 llm_timeout_seconds=int(llm_timeout),
                 schema_hint=schema_hint,
+                schema_hint_file=schema_hint_file,
                 cache_ttl_seconds=int(cache_ttl_seconds),
                 cache_max_entries=int(cache_max_entries),
                 llm_temperature=float(llm_temperature),
@@ -2613,6 +2837,9 @@ def main() -> None:
                             cache_ttl_seconds=int(cache_ttl_seconds),
                             cache_max_entries=int(cache_max_entries),
                             llm_temperature=float(llm_temperature),
+                            llm_profile=resolve_llm_profile(
+                                schema_hint_file, dwh_url=dwh_url.strip()
+                            ),
                         )
                         extra_fb = _build_follow_up_prompt_extra()
                         vf_fb = st.session_state.get(SESSION_KEY_FOCUS_VEHICLE)
@@ -2651,7 +2878,7 @@ def main() -> None:
                                     "sql": result.generated_sql,
                                     "rows": len(result.rows),
                                     "error": None,
-                                    "kpi": result.deterministic_kpi or "",
+                                    "kpi": "",
                                     "answer_summary": answer_summary_fb,
                                 }
                             )
@@ -2681,7 +2908,7 @@ def main() -> None:
                 )
                 if client_ip:
                     st.code(
-                        "host    vgd_dwh_migration    postgres    "
+                        "host    vgd_dwh_prod_migracion    postgres    "
                         f"{client_ip}/32    scram-sha-256"
                     )
                 st.info(
@@ -2704,7 +2931,7 @@ def main() -> None:
                 "sql": result.generated_sql,
                 "rows": len(result.rows),
                 "error": None,
-                "kpi": result.deterministic_kpi or "",
+                "kpi": "",
                 "answer_summary": answer_summary_precomputed,
             }
         )
