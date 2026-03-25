@@ -916,8 +916,7 @@ def _chitchat_reply(user_text: str) -> str | None:
     if _RE_CHITCHAT_GREETING.match(t):
         return (
             "¡Hola! Soy el asistente del **Panel de Inteligencia Comercial**. "
-            "Puedo ayudarte a consultar tu almacén de datos: clientes, ventas, servicios, citas, seguros, etc.\n\n"
-            "Pregunta en lenguaje natural, por ejemplo: *¿Cuántos clientes hay por estado?* o *Top talleres con más no show*."
+            "Puedo ayudarte a consultar tu almacén de datos: clientes, ventas, servicios, citas, seguros, etc."
         )
     if _RE_CHITCHAT_THANKS.match(t):
         return "De nada. Cuando quieras, sigue con otra pregunta sobre tus datos."
@@ -960,10 +959,14 @@ def _render_natural_chat_block() -> tuple[str, bool]:
             else:
                 reply = (turn.get("answer_summary") or "").strip()
                 row_n = int(turn.get("rows") or 0)
-                if reply:
-                    st.markdown(reply)
-                if row_n > 0 and turn_idx == last_turn_idx:
-                    with st.popover("Ver datos", help="Abre gráfica o detalle en un cuadro de diálogo."):
+                show_detail_entry = row_n > 0 and turn_idx == last_turn_idx
+                if show_detail_entry:
+                    with st.popover(
+                        "\u200b",
+                        icon=":material/table_view:",
+                        help="Gráfica o detalle en ventana emergente",
+                        use_container_width=True,
+                    ):
                         if st.button(
                             "Gráfica",
                             use_container_width=True,
@@ -978,6 +981,10 @@ def _render_natural_chat_block() -> tuple[str, bool]:
                         ):
                             st.session_state[CHAT_DATA_DIALOG_REQUEST_KEY] = "detail"
                             st.rerun()
+                    if reply:
+                        st.markdown(reply)
+                elif reply:
+                    st.markdown(reply)
                 if _is_developer_ui():
                     st.code(turn.get("sql") or "", language="sql")
                 if not reply:
@@ -1912,19 +1919,63 @@ def main() -> None:
         st.session_state[SESSION_KEY_DEVELOPER_UI] = os.getenv(
             "AGENTE_DWH_DEVELOPER_UI", ""
         ).lower() in ("1", "true", "yes")
-    st.markdown(
+    _hide_streamlit_header_chrome = ""
+    if not _is_developer_ui():
+        _hide_streamlit_header_chrome = """
+        /* Deploy y menú ⋮ del header: solo visibles en modo desarrollo */
+        [data-testid="stToolbar"] {
+            visibility: hidden !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+        [data-testid="stDecoration"] { display: none !important; }
+        .stAppDeployButton { display: none !important; }
+        [data-testid="stDeployButton"] { display: none !important; }
         """
+    st.markdown(
+        f"""
         <style>
-        div.stButton > button[kind="primary"] {
+        div.stButton > button[kind="primary"] {{
             background-color: #1d4ed8;
             border-color: #1d4ed8;
             color: white;
-        }
-        div.stButton > button[kind="primary"]:hover {
+        }}
+        div.stButton > button[kind="primary"]:hover {{
             background-color: #1e40af;
             border-color: #1e40af;
             color: white;
-        }
+        }}
+        /* Chat tipo mensajería: usuario a la derecha, asistente a la izquierda */
+        [data-testid="stChatMessage"] {{
+            display: flex;
+            width: 100%;
+            align-items: flex-start;
+        }}
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
+            flex-direction: row-reverse;
+            justify-content: flex-start;
+            margin-left: auto;
+            margin-right: 0;
+            max-width: min(92%, 42rem);
+        }}
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+            [data-testid="stChatMessageContent"] {{
+            text-align: right;
+        }}
+        [data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"])) {{
+            flex-direction: row;
+            justify-content: flex-start;
+            margin-right: auto;
+            margin-left: 0;
+            max-width: min(92%, 48rem);
+        }}
+        [data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"]))
+            [data-testid="stChatMessageContent"] {{
+            text-align: left;
+        }}
+        {_hide_streamlit_header_chrome}
         </style>
         """,
         unsafe_allow_html=True,
@@ -2028,23 +2079,10 @@ def main() -> None:
 
     if natural_chat and not should_run:
         _render_follow_up_banners()
+        # El resumen y el detalle viven en el hilo del chat (y el icono de detalle con diálogos).
+        # No duplicamos «Respuesta» / pronóstico debajo para dejar solo la conversación.
         lr = st.session_state.get(SESSION_KEY_LAST_QUERY_VIEW)
-        if lr:
-            if lr.get("kind") == "forecast":
-                _render_forecast_result(lr["forecast"], cache_stats=lr.get("cache_stats"))
-            else:
-                _render_query_result(
-                    lr["result"],
-                    model_used=lr.get("model_used"),
-                    cache_stats=lr.get("cache_stats"),
-                    llm_for_summary=_make_summary_llm_client(
-                        llm_endpoint.strip(),
-                        str(lr.get("model_used") or llm_model).strip(),
-                        llm_timeout_seconds=int(llm_timeout),
-                        llm_temperature=float(llm_temperature),
-                    ),
-                    answer_summary_cached=lr.get("answer_summary"),
-                )
+        if lr and _is_developer_ui():
             _render_observability_panel(cache_stats=lr.get("cache_stats"))
         return
 
