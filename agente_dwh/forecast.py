@@ -37,6 +37,7 @@ class SalesForecastResult:
     method_label: str
     horizon_months: int
     dimension: str
+    source_sql: str
     source_rows: int
     forecast_rows: list[dict[str, Any]]
     chart_rows: list[dict[str, Any]]
@@ -96,7 +97,8 @@ def compute_sales_forecast(
     if horizon_months <= 0:
         raise ValueError("El horizonte debe ser mayor a 0.")
 
-    rows = dwh_client.execute_select(_build_history_query(dimension))
+    source_sql = _build_history_query(dimension)
+    rows = dwh_client.execute_select(source_sql)
     if not rows:
         raise ValueError("No hay ventas históricas para calcular pronóstico.")
 
@@ -180,6 +182,7 @@ def compute_sales_forecast(
         method_label=FORECAST_METHODS[method],
         horizon_months=horizon_months,
         dimension=dimension,
+        source_sql=source_sql,
         source_rows=len(rows),
         forecast_rows=forecast_rows,
         chart_rows=chart_rows,
@@ -190,11 +193,10 @@ def _build_history_query(dimension: str) -> str:
     if dimension == "total":
         return """
 SELECT
-    substr(CAST(s.sale_date AS TEXT), 1, 7) AS year_month,
+    m.year_month AS year_month,
     'TOTAL' AS dimension_value,
-    SUM(s.amount) AS total_sales
-FROM sales s
-WHERE s.sale_date IS NOT NULL
+    SUM(m.total_sales) AS total_sales
+FROM mv_sales_monthly m
 GROUP BY 1
 ORDER BY 1
 LIMIT 50000;
@@ -203,25 +205,22 @@ LIMIT 50000;
     if dimension == "channel":
         return """
 SELECT
-    substr(CAST(s.sale_date AS TEXT), 1, 7) AS year_month,
-    COALESCE(s.channel, 'SIN_DATO') AS dimension_value,
-    SUM(s.amount) AS total_sales
-FROM sales s
-WHERE s.sale_date IS NOT NULL
+    m.year_month AS year_month,
+    COALESCE(m.channel, 'SIN_DATO') AS dimension_value,
+    SUM(m.total_sales) AS total_sales
+FROM mv_sales_monthly m
 GROUP BY 1, 2
 ORDER BY 1, 2
 LIMIT 50000;
 """.strip()
 
-    dimension_column = "c.state" if dimension == "state" else "c.segment"
+    dimension_column = "m.state" if dimension == "state" else "m.segment"
     return f"""
 SELECT
-    substr(CAST(s.sale_date AS TEXT), 1, 7) AS year_month,
+    m.year_month AS year_month,
     COALESCE({dimension_column}, 'SIN_DATO') AS dimension_value,
-    SUM(s.amount) AS total_sales
-FROM sales s
-JOIN customers c ON s.customer_id = c.id
-WHERE s.sale_date IS NOT NULL
+    SUM(m.total_sales) AS total_sales
+FROM mv_sales_monthly m
 GROUP BY 1, 2
 ORDER BY 1, 2
 LIMIT 50000;

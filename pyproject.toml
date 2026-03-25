@@ -9,6 +9,7 @@ description = "Agente IA para consultar un DWH con un LLM local"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "openpyxl",
   "SQLAlchemy",
   "streamlit",
 ]

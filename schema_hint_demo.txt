@@ -4,11 +4,16 @@ Tablas disponibles para analisis demo:
 - id (PK)
 - customer_code
 - full_name
+- gender
+- age
+- birth_date
 - email
 - phone
 - city
 - state
 - segment
+- monthly_income
+- risk_profile
 - created_at
 
 2) vehicles
@@ -18,6 +23,7 @@ Tablas disponibles para analisis demo:
 - plate
 - brand
 - model
+- unit_type
 - year
 - fuel_type
 - mileage
@@ -31,6 +37,7 @@ Tablas disponibles para analisis demo:
 - amount
 - channel
 - seller
+- payment_method
 - status
 
 4) services
@@ -44,14 +51,79 @@ Tablas disponibles para analisis demo:
 - workshop
 - notes
 
+5) service_appointments
+- id (PK)
+- customer_id (FK -> customers.id)
+- vehicle_id (FK -> vehicles.id)
+- appointment_date
+- service_type
+- appointment_status (completada, programada, no_show, cancelada)
+- workshop
+- cancellation_reason
+- attended
+- created_at
+- updated_at
+
+6) insurance_policies
+- id (PK)
+- customer_id (FK -> customers.id)
+- vehicle_id (FK -> vehicles.id)
+- policy_start_date
+- policy_end_date
+- insurer
+- coverage_type
+- annual_premium
+- policy_status
+- claim_count
+- last_claim_date
+
+7) mv_sales_monthly (tabla materializada para analytics)
+- year_month
+- state
+- channel
+- segment
+- total_sales
+- sales_count
+
+8) mv_customer_lifecycle (tabla materializada para analytics)
+- customer_id
+- purchases
+- total_amount
+- first_sale_date
+- last_sale_date
+- avg_repurchase_days
+
 Relaciones clave:
 - customers.id -> vehicles.customer_id
 - customers.id -> sales.customer_id
 - customers.id -> services.customer_id
+- customers.id -> service_appointments.customer_id
+- customers.id -> insurance_policies.customer_id
 - vehicles.id -> sales.vehicle_id
 - vehicles.id -> services.vehicle_id
+- vehicles.id -> service_appointments.vehicle_id
+- vehicles.id -> insurance_policies.vehicle_id
+- customers.id -> mv_customer_lifecycle.customer_id
+
+Preguntas de negocio que soporta este demo:
+- Citas agendadas de servicio por estatus (completada/programada/no_show/cancelada).
+- Tasa de no show por estado, canal o taller.
+- Citas programadas para los próximos 7/30 días.
+- Top no show por taller.
+- Cancelaciones por motivo y por taller.
+- Conversión de citas programadas a completadas por mes.
+- Tiempo promedio de recompra por cliente (diferencia entre compras consecutivas en sales.sale_date).
+- Edad promedio de compradores y analisis por gender.
+- Tipo de unidad recomendado por rango de edad y genero (vehicles.unit_type + customers.age/gender).
+- Elegibilidad para ofertar seguro:
+  - clientes con vehiculo y sin poliza activa,
+  - o poliza activa por vencer (policy_end_date cercano),
+  - o poliza vencida.
 
 Buenas practicas:
-- Para ventas por cliente, usar SUM(s.amount) agrupando por c.full_name.
-- Para servicios por cliente, usar SUM(sv.cost) y COUNT(*).
-- Para combinaciones de vehiculos y clientes, unir customers c + vehicles v.
+- Para recompra, usar ventanas (LAG) en sales por customer_id y calcular dias entre compras.
+- Para recomendacion por rango de edad, agrupar por buckets de age y unit_type.
+- Para seguro, combinar customers + vehicles + insurance_policies filtrando por policy_status y fechas.
+- Para agenda de servicio, usar service_appointments y filtrar por appointment_status/appointment_date.
+- Para pronósticos y tendencias mensuales, preferir mv_sales_monthly en lugar de recalcular desde sales.
+- Para recompra y ciclo de vida por cliente, preferir mv_customer_lifecycle.

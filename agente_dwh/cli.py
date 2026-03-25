@@ -8,6 +8,7 @@ from .agent import DwhAgent
 from .config import ConfigError, load_settings
 from .dwh import DwhClient
 from .llm_local import LocalOllamaClient
+from .observability import get_recent_alerts
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +53,12 @@ def main() -> None:
         settings = load_settings()
         if args.limite <= 0:
             raise ValueError("--limite debe ser mayor que 0.")
-        dwh = DwhClient.from_url(settings.dwh_url, default_limit=min(args.limite, settings.max_rows))
+        dwh = DwhClient.from_url(
+            settings.dwh_url,
+            default_limit=min(args.limite, settings.max_rows),
+            cache_ttl_seconds=settings.cache_ttl_seconds,
+            cache_max_entries=settings.cache_max_entries,
+        )
         llm = LocalOllamaClient(
             base_url=settings.llm_endpoint,
             model_name=settings.llm_model,
@@ -69,13 +75,21 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     if args.json:
+        payload: dict[str, object] = {
+            "pregunta": result.question,
+            "sql": result.generated_sql,
+            "rows": result.rows,
+            "cache": dwh.get_cache_stats(),
+        }
+        if result.deterministic_kpi:
+            payload["kpi_deterministico"] = result.deterministic_kpi
+            payload["explicacion_kpi"] = result.deterministic_explanation
+        alerts = get_recent_alerts(limit=5)
+        if alerts:
+            payload["alertas"] = alerts
         print(
             json.dumps(
-                {
-                    "pregunta": result.question,
-                    "sql": result.generated_sql,
-                    "rows": result.rows,
-                },
+                payload,
                 ensure_ascii=False,
                 indent=2,
             )
@@ -84,6 +98,9 @@ def main() -> None:
 
     print("=== SQL generado ===")
     print(result.generated_sql)
+    if result.deterministic_kpi:
+        print(f"(KPI determinístico: {result.deterministic_kpi})")
+        print(result.deterministic_explanation)
     print()
     print("=== Resultado ===")
     rows = result.rows
@@ -92,6 +109,9 @@ def main() -> None:
     else:
         for idx, row in enumerate(rows, start=1):
             print(f"{idx}. {row}")
+    print()
+    print("=== Cache ===")
+    print(dwh.get_cache_stats())
 
 
 if __name__ == "__main__":
