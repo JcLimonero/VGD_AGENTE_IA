@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import os
+from io import BytesIO
 from pathlib import Path
 import re
 from typing import Any
@@ -443,16 +444,27 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
     df = _format_mxn_columns(df)
     pretty_df, _ = _prettify_dataframe_columns(df)
     st.dataframe(pretty_df, use_container_width=True)
-    excel_buffer = BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-        pretty_df.to_excel(writer, index=False, sheet_name="Resultados")
-    st.download_button(
-        label="Descargar resultados en Excel",
-        data=excel_buffer.getvalue(),
-        file_name="resultados_consulta.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    try:
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            pretty_df.to_excel(writer, index=False, sheet_name="Resultados")
+        st.download_button(
+            label="Descargar resultados en Excel",
+            data=excel_buffer.getvalue(),
+            file_name="resultados_consulta.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    except ModuleNotFoundError:
+        csv_data = pretty_df.to_csv(index=False).encode("utf-8-sig")
+        st.info("Exportación Excel no disponible en este entorno. Descarga CSV habilitada.")
+        st.download_button(
+            label="Descargar resultados en CSV",
+            data=csv_data,
+            file_name="resultados_consulta.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 
 def _render_chart_options(rows: list[dict[str, Any]]) -> None:
