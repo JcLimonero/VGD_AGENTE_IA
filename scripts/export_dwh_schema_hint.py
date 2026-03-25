@@ -76,6 +76,17 @@ def build_preamble(db_name: str, tables: list[str], meta: dict) -> str:
             + ", ".join(missing_demo)
             + "."
         )
+    demo_map_bits: list[str] = []
+    if "sales" not in tset and "invoices" in tset:
+        demo_map_bits.append(
+            "`sales` del demo → usa `invoices` para ventas facturadas (y `orders` o `comissions` si la pregunta es pedidos o comisiones)"
+        )
+    if "vehicles" not in tset and "inventory" in tset:
+        demo_map_bits.append(
+            "`vehicles` del demo → usa `inventory` para unidades en stock (VIN y datos de unidad en columnas listadas)"
+        )
+    if demo_map_bits:
+        lines.append("- Equivalencias frente al dataset demo del repo: " + "; ".join(demo_map_bits) + ".")
     if "agencies" in tset:
         lines.append(
             '- Catálogo de agencias / sucursales: tabla `agencies` (p. ej. SELECT COUNT(*) AS n FROM agencies). '

@@ -99,6 +99,9 @@ Para «qué agencias hay», «cuántas agencias», «listado de agencias»: usa 
 No uses customers para listar el catálogo de agencias: customers pertenece a una agencia vía "idAgency", pero el listado oficial es agencies.
 Solo tendría sentido DISTINCT "idAgency" FROM customers si el usuario pide explícitamente agencias que aparecen en clientes (subconjunto), no el catálogo completo.
 
+Equivalencias respecto al demo (tablas que aquí no existen): `sales` → `invoices` (ventas facturadas; `orders` / `comissions` según pedidos o comisiones); `vehicles` → `inventory` (stock, VIN).
+Une hechos a agencies con t."idAgency" = a."idAgency". No uses customers.agency_id (no existe); en customers el vínculo a agencia es "idAgency" (y ndClientDMS).
+
 Ejemplos de forma (adapta nombres reales al esquema de referencia):
 - SELECT dim, COUNT(*)::bigint AS n FROM tabla_en_esquema GROUP BY dim ORDER BY n DESC;
 - SELECT COUNT(*)::bigint AS n FROM tabla_en_esquema;
@@ -167,6 +170,7 @@ Reglas obligatorias:
 8) Fechas DATE: resta devuelve días enteros; EXTRACT(EPOCH ...) coherente con tipos.
 9) YEAR/MONTH/DAY: usa EXTRACT(YEAR FROM x), etc.
 10) Si la intención es listar o contar agencias (catálogo) y el SQL usó customers sin que el usuario pidiera «agencias con clientes» u operación similar, pasa a FROM agencies con "idAgency" y name según el esquema.
+11) Si el error menciona tablas sales o vehicles inexistentes: reemplaza sales→invoices (u orders/comissions), vehicles→inventory; JOIN agencies por "idAgency", no agencies.id = sales.customer_id; usa >= en fechas, no ≥.
 """
 
 

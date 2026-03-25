@@ -86,8 +86,16 @@ class VgdSqlGuardTests(unittest.TestCase):
     def test_literal_from_sales_not_false_positive(self) -> None:
         validate_vgd_dwh_sql("SELECT 'FROM sales' AS hint FROM agencies")
 
-    def test_select_from_any_table_ok_if_count_valid(self) -> None:
-        validate_vgd_dwh_sql("SELECT state, COUNT(*) FROM sales GROUP BY state")
+    def test_from_sales_rejected(self) -> None:
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_vgd_dwh_sql(
+                "SELECT COUNT(*)::bigint AS n FROM sales s JOIN agencies a ON TRUE"
+            )
+        self.assertIn("invoices", str(ctx.exception).lower())
+
+    def test_from_vehicles_rejected(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_vgd_dwh_sql("SELECT 1 FROM vehicles v LIMIT 1")
 
     def test_vgd_execution_guard_enabled_by_default(self) -> None:
         self.assertTrue(vgd_execution_guard_enabled(database_url="postgresql://localhost/postgres"))

@@ -270,6 +270,18 @@ def validate_read_only_sql(sql: str) -> None:
 # Patrón: COUNT() sin expresión dentro del paréntesis (inválido en PostgreSQL).
 _COUNT_EMPTY_RE = re.compile(r"(?is)\bCOUNT\s*\(\s*\)")
 
+# Tablas del tutorial/demo que no existen en vgd_dwh_prod_migracion (evita ejecutar SQL inválido).
+_FORBIDDEN_DEMO_TABLES_VGD: tuple[str, ...] = ("SALES", "VEHICLES")
+
+
+def _sql_references_table(upper_masked: str, table_upper: str) -> bool:
+    schema_tbl = rf"(?:[A-Za-z0-9_]+\.)?{table_upper}"
+    return bool(
+        re.search(rf"(?is)\bFROM\s+{schema_tbl}\b", upper_masked)
+        or re.search(rf"(?is)\bJOIN\s+{schema_tbl}\b", upper_masked)
+        or re.search(rf"(?is),\s*{table_upper}\b", upper_masked)
+    )
+
 
 def vgd_execution_guard_enabled(*, database_url: str = "") -> bool:
     """
@@ -290,7 +302,7 @@ def vgd_execution_guard_enabled(*, database_url: str = "") -> bool:
 
 def validate_vgd_dwh_sql(sql: str) -> None:
     """
-    Validación extra para SQL contra el DWH PostgreSQL: rechaza COUNT() vacío (inválido en PostgreSQL).
+    Validación extra para SQL contra el DWH PostgreSQL: COUNT() vacío y tablas demo inexistentes (sales/vehicles).
 
     Usa el mismo enmascarado de literales que validate_read_only_sql para reducir falsos positivos.
     Lanza RuntimeError con mensaje en español (el agente puede reenviarlo al LLM como corrección).
@@ -299,6 +311,17 @@ def validate_vgd_dwh_sql(sql: str) -> None:
         return
     without_comments = _strip_sql_comments(sql)
     masked = _mask_quoted_for_scan(without_comments)
+    upper = masked.upper()
+
+    for tbl in _FORBIDDEN_DEMO_TABLES_VGD:
+        if _sql_references_table(upper, tbl):
+            raise RuntimeError(
+                "Prevalidación SQL: en este DWH no existen las tablas «sales» ni «vehicles» del dataset demo. "
+                "Usa «invoices» (facturación; complementa con «orders» o «comissions» si la pregunta lo pide) "
+                "en lugar de «sales», y «inventory» en lugar de «vehicles». "
+                "Une hechos a «agencies» con t.\"idAgency\" = a.\"idAgency\" (no agencies.id = sales.customer_id). "
+                "En PostgreSQL usa >= para comparar fechas, no el carácter Unicode ≥."
+            )
 
     if _COUNT_EMPTY_RE.search(masked):
         raise RuntimeError(

@@ -4,6 +4,7 @@ DWH PostgreSQL — esquema `public`, base de datos `vgd_dwh_prod_migracion`.
 - Usa ÚNICAMENTE las tablas y columnas listadas más abajo. En `public` hay 13 tablas.
 - No inventes tablas, vistas ni columnas que no aparezcan en este documento.
 - En esta instancia NO existen en `public` (no las uses en SQL): sales, vehicles, service_appointments, insurance_policies, mv_sales_monthly.
+- Equivalencias frente al dataset demo del repo: `sales` del demo → usa `invoices` para ventas facturadas (y `orders` o `comissions` si la pregunta es pedidos o comisiones); `vehicles` del demo → usa `inventory` para unidades en stock (VIN y datos de unidad en columnas listadas).
 - Catálogo de agencias / sucursales: tabla `agencies` (p. ej. SELECT COUNT(*) AS n FROM agencies). No confundas con conteos desde hechos salvo que el usuario pida «agencias con pedidos», etc.
 - Cliente DMS: par ("idAgency", "ndClientDMS"). JOIN típico:
     ON t."idAgency" = c."idAgency" AND t."ndClientDMS" = c."ndClientDMS"
