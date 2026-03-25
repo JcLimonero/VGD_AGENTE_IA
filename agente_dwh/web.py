@@ -459,6 +459,53 @@ def _build_agent(
     return DwhAgent(dwh_client=dwh, llm_client=llm, schema_hint=schema_hint)
 
 
+SESSION_KEY_CACHED_DW_AGENT = "cached_dw_agent_instance"
+SESSION_KEY_CACHED_DW_AGENT_CFG = "cached_dw_agent_config_tuple"
+
+
+def _get_session_agent(
+    *,
+    dwh_url: str,
+    llm_endpoint: str,
+    llm_model: str,
+    row_limit: int,
+    llm_timeout_seconds: int,
+    schema_hint: str,
+    cache_ttl_seconds: int,
+    cache_max_entries: int,
+    llm_temperature: float,
+) -> DwhAgent:
+    """
+    Reutiliza DwhAgent en la sesión si la configuración no cambió: mantiene pool SQLAlchemy y caché de
+    resultados del DWH entre consultas (menos latencia en repetidas / mismos SQL).
+    """
+    cfg = (
+        dwh_url.strip(),
+        llm_endpoint.strip(),
+        llm_model.strip(),
+        int(row_limit),
+        int(llm_timeout_seconds),
+        schema_hint,
+        int(cache_ttl_seconds),
+        int(cache_max_entries),
+        round(float(llm_temperature), 6),
+    )
+    if st.session_state.get(SESSION_KEY_CACHED_DW_AGENT_CFG) != cfg:
+        st.session_state[SESSION_KEY_CACHED_DW_AGENT_CFG] = cfg
+        st.session_state[SESSION_KEY_CACHED_DW_AGENT] = _build_agent(
+            dwh_url=cfg[0],
+            llm_endpoint=cfg[1],
+            llm_model=cfg[2],
+            row_limit=cfg[3],
+            llm_timeout_seconds=cfg[4],
+            schema_hint=cfg[5],
+            cache_ttl_seconds=cfg[6],
+            cache_max_entries=cfg[7],
+            llm_temperature=cfg[8],
+        )
+    return st.session_state[SESSION_KEY_CACHED_DW_AGENT]
+
+
 def _friendly_column_name(name: Any) -> str:
     raw = str(name).strip()
     key = raw.lower()
@@ -640,6 +687,51 @@ def _truncate_summary_cell(value: Any, max_len: int = NL_TRUNCATE_CELL_LEN) -> s
     return s
 
 
+def _find_vin_column_key(rows: list[dict[str, Any]]) -> str | None:
+    if not rows:
+        return None
+    for k in rows[0].keys():
+        if str(k).lower() == "vin":
+            return k
+    return None
+
+
+def _ordered_distinct_vins(rows: list[dict[str, Any]], key: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        v = r.get(key)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if not s or s.lower() in ("nan", "none", "<na>"):
+            continue
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _multi_vin_markdown_line(rows: list[dict[str, Any]]) -> str | None:
+    """Si hay más de un VIN distinto en el resultado, una línea con todos separados por comas."""
+    if len(rows) < 2:
+        return None
+    key = _find_vin_column_key(rows)
+    if not key:
+        return None
+    ordered = _ordered_distinct_vins(rows, key)
+    if len(ordered) <= 1:
+        return None
+    return "**VINs:** " + ", ".join(ordered)
+
+
+def _append_multi_vin_summary_line(text: str, rows: list[dict[str, Any]]) -> str:
+    line = _multi_vin_markdown_line(rows)
+    if not line:
+        return text
+    return f"{text.rstrip()}\n\n{line}"
+
+
 def _heuristic_answer_summary(rows: list[dict[str, Any]]) -> str | None:
     """
     Resumen sin LLM. Devuelve None si conviene delegar al modelo (muchas filas o muchas columnas).
@@ -658,10 +750,16 @@ def _heuristic_answer_summary(rows: list[dict[str, Any]]) -> str | None:
             lines.append(f"- **{label}:** {val}")
         return "\n".join(lines)
     if n_rows <= NL_HEURISTIC_MAX_ROWS and n_cols <= NL_SUMMARY_MAX_COLS_HEURISTIC:
+        vin_raw_key = _find_vin_column_key(rows)
+        skip_vin_per_row = bool(
+            vin_raw_key and len(_ordered_distinct_vins(rows, vin_raw_key)) > 1
+        )
         lines: list[str] = []
         for i in range(n_rows):
             pairs: list[str] = []
             for col in df.columns:
+                if skip_vin_per_row and str(col).lower() == "vin":
+                    continue
                 pairs.append(f"**{col}:** {_truncate_summary_cell(df.iloc[i][col])}")
             lines.append(f"{i + 1}. " + " · ".join(pairs))
         return "\n".join(lines)
@@ -707,23 +805,25 @@ def _compute_hybrid_answer_summary(
     llm: LocalOllamaClient | None,
 ) -> str:
     if not rows:
-        return _heuristic_answer_summary(rows) or ""
+        return _append_multi_vin_summary_line(_heuristic_answer_summary(rows) or "", rows)
 
     if len(rows) == 1 and llm is not None:
         try:
-            return _llm_answer_summary(llm, question, rows)
+            out = _llm_answer_summary(llm, question, rows)
         except LLMError:
-            return _heuristic_answer_summary(rows) or ""
+            out = _heuristic_answer_summary(rows) or ""
+        return _append_multi_vin_summary_line(out, rows)
 
     h = _heuristic_answer_summary(rows)
     if h is not None:
-        return h
+        return _append_multi_vin_summary_line(h, rows)
     if llm is not None:
         try:
-            return _llm_answer_summary(llm, question, rows)
+            out = _llm_answer_summary(llm, question, rows)
         except LLMError:
-            return _fallback_summary_after_llm_failure(rows)
-    return _fallback_summary_after_llm_failure(rows)
+            out = _fallback_summary_after_llm_failure(rows)
+        return _append_multi_vin_summary_line(out, rows)
+    return _append_multi_vin_summary_line(_fallback_summary_after_llm_failure(rows), rows)
 
 
 def _rows_have_numeric_for_chart(rows: list[dict[str, Any]]) -> bool:
@@ -2427,7 +2527,7 @@ def main() -> None:
     with st.spinner("Procesando consulta..."):
         cache_stats: dict[str, Any] | None = None
         try:
-            agent = _build_agent(
+            agent = _get_session_agent(
                 dwh_url=dwh_url.strip(),
                 llm_endpoint=llm_endpoint.strip(),
                 llm_model=llm_model.strip(),

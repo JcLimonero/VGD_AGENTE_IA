@@ -73,6 +73,12 @@ Reglas obligatorias:
     - Si necesitas EPOCH: EXTRACT(EPOCH FROM (fecha1::timestamp - fecha2::timestamp)).
 16) PostgreSQL: NO uses funciones estilo MySQL YEAR(c), MONTH(c), DAY(c) (no existen). Usa
     EXTRACT(YEAR FROM c), EXTRACT(MONTH FROM c), EXTRACT(DAY FROM c).
+17) PostgreSQL: la resta de dos DATE devuelve INTEGER (días). NO escribas (d2 - d1) :: interval 'day'
+    ni casts similares; usa solo (d2 - d1) o castea a numeric si hace falta.
+18) LAG, LEAD, ROW_NUMBER, etc. son funciones de ventana: van en el SELECT (o en una subconsulta/CTE),
+    nunca como «JOIN LAG(...)» ni «JOIN ROW_NUMBER()». Para emparejar fila con la anterior venta,
+    usa WITH/ subconsulta: SELECT ... LAG(sale_date) OVER (PARTITION BY customer_id ORDER BY sale_date) ...
+    y luego filtra o une sobre ese resultado.
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -103,6 +109,9 @@ Reglas obligatorias:
     usa AVG(f1 - f2) en días o EXTRACT(EPOCH FROM (f1::timestamp - f2::timestamp)).
 14) Si el error es «function year(date) does not exist» (o month/day): reemplaza YEAR(x) por
     EXTRACT(YEAR FROM x); MONTH(x) y DAY(x) igual con EXTRACT.
+15) Si el error es «syntax error at or near interval» con :: interval 'day': quita ese cast;
+    (fecha2 - fecha1) en DATE ya son días (entero).
+16) Si hay JOIN con LAG/LEAD/ROW_NUMBER: reescribe con CTE o subconsulta donde la ventana esté en el SELECT.
 """
 
 
@@ -143,6 +152,7 @@ class DwhAgent:
                 "Genera SQL que ejecute en PostgreSQL sin errores de sintaxis de otros motores.\n"
                 "Reglas de dialecto PostgreSQL:\n"
                 "- Fechas: EXTRACT(YEAR FROM col), no YEAR(col); intervalos con INTERVAL '1 day' / '1 month'.\n"
+                "- Resta DATE - DATE = días (entero); no uses (d2-d1)::interval 'day'.\n"
                 "- Agregados: COUNT(*) o COUNT(col); nunca COUNT() vacío.\n"
                 "- LIMIT va al final del SELECT (o subconsulta) según sintaxis PostgreSQL.\n"
                 "- Casts habituales: expresion::numeric, expresion::date, expresion::timestamp.\n"

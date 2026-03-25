@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 import time
 from typing import Any
 
@@ -20,6 +21,21 @@ class QueryEvent:
 
 _EVENTS: deque[QueryEvent] = deque(maxlen=500)
 _ALERTS: deque[str] = deque(maxlen=200)
+
+
+def _alert_latency_threshold_ms(source: str) -> float:
+    """
+    Umbral para «latencia alta». El agente incluye inferencia LLM (Ollama), que suele superar 2.5 s
+    en CPU; por defecto solo alertamos por encima de un umbral mayor para source=agent.
+    """
+    if source == "agent":
+        raw = os.getenv("AGENTE_DWH_ALERT_LATENCY_MS_AGENT", "20000").strip()
+    else:
+        raw = os.getenv("AGENTE_DWH_ALERT_LATENCY_MS", "2500").strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 20000.0 if source == "agent" else 2500.0
 
 
 def _utc_now_iso() -> str:
@@ -54,7 +70,8 @@ def _maybe_emit_alert(event: QueryEvent) -> None:
         _ALERTS.appendleft(
             f"[{event.timestamp}] ALERTA error en {event.source}: {event.message or 'fallo sin detalle'}"
         )
-    if event.duration_ms > 2500:
+    threshold = _alert_latency_threshold_ms(event.source)
+    if threshold > 0 and event.duration_ms > threshold:
         _ALERTS.appendleft(
             f"[{event.timestamp}] ALERTA latencia alta en {event.source}: {event.duration_ms:.2f} ms"
         )

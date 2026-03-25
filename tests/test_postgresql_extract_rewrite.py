@@ -54,6 +54,16 @@ class PostgresqlExtractEpochRewriteTests(unittest.TestCase):
         self.assertIn("extract(month from", lo)
         self.assertIn("extract(day from", lo)
 
+    def test_removes_invalid_interval_day_cast_after_date_subtraction(self) -> None:
+        client = self._pg_client()
+        sql = (
+            "SELECT (s2.sale_date - s1.sale_date) :: interval 'day' AS gap FROM sales s1 JOIN sales s2 ON true"
+        )
+        out = client._normalize_sql_for_dialect(sql)
+        self.assertNotRegex(out.lower(), r"::\s*interval\s+'day'")
+        compact = out.replace(" ", "").lower()
+        self.assertIn("s2.sale_date-s1.sale_date", compact)
+
 
 if __name__ == "__main__":
     unittest.main()

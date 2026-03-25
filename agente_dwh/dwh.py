@@ -156,6 +156,7 @@ class DwhClient:
         elif self.dialect_name == "postgresql":
             normalized = self._rewrite_postgresql_count_empty_parentheses(normalized)
             normalized = self._rewrite_postgresql_mysql_style_date_parts(normalized)
+            normalized = self._rewrite_postgresql_invalid_interval_literal_cast(normalized)
             normalized = self._rewrite_postgresql_extract_epoch_from_date_subtraction(normalized)
             normalized = self._rewrite_postgresql_round_two_arg(normalized)
 
@@ -534,4 +535,19 @@ class DwhClient:
             if not changed:
                 break
         return sql
+
+    def _rewrite_postgresql_invalid_interval_literal_cast(self, sql: str) -> str:
+        """
+        El LLM a veces escribe (fecha2 - fecha1) :: interval 'day', que no es sintaxis válida en PostgreSQL.
+        DATE - DATE ya devuelve INTEGER (días); se elimina el cast erróneo.
+        """
+        out = sql
+        for lit in ("day", "days", "month", "months", "year", "years"):
+            out = re.sub(
+                rf"\)\s*::\s*interval\s+'{lit}'",
+                ")",
+                out,
+                flags=re.IGNORECASE,
+            )
+        return out
 
