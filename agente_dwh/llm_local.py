@@ -26,7 +26,7 @@ class LocalOllamaClient:
         self._timeout_seconds = timeout_seconds
         self._temperature = temperature
 
-    def generate_sql(self, system_prompt: str, user_prompt: str) -> str:
+    def _chat_completion(self, system_prompt: str, user_prompt: str) -> str:
         payload = {
             "model": self._model_name,
             "stream": False,
@@ -69,9 +69,16 @@ class LocalOllamaClient:
 
         return content.strip()
 
+    def generate_sql(self, system_prompt: str, user_prompt: str) -> str:
+        return self._chat_completion(system_prompt, user_prompt)
+
     def generar_sql(self, prompt: str, system_prompt: str) -> str:
         """Alias en español para compatibilidad."""
-        return self.generate_sql(system_prompt=system_prompt, user_prompt=prompt)
+        return self._chat_completion(system_prompt, prompt)
+
+    def generate_natural_language(self, *, system_prompt: str, user_prompt: str) -> str:
+        """Respuesta en texto natural (misma API que SQL, distintos prompts)."""
+        return self._chat_completion(system_prompt, user_prompt)
 
 
 OllamaClient = LocalOllamaClient

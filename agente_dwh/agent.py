@@ -39,8 +39,10 @@ Reglas obligatorias:
 8) Si la pregunta pide datos de vehículos o cada fila identifica un vehículo (tabla vehicles, vehicle_id,
    ventas/servicios/citas/pólizas por unidad), incluye SIEMPRE la columna vin: haz JOIN a vehicles si no está
    y expón vehicles.vin (o alias v.vin). No aplica a agregados puramente globales sin desglose por unidad.
-9) Si el contexto o el esquema indican un identificador de agencia (idAgency, agency_id, etc.), úsalo para
-   filtrar o unir la tabla de clientes u otras entidades que lleven ese campo.
+9) agency_id / idAgency: ÚSALO SOLO si el esquema de referencia lista explícitamente esa columna en esa tabla.
+   En el dataset demo típico, sales, services, service_appointments e insurance_policies NO tienen agency_id;
+   customers y vehicles tampoco. No inventes sales.agency_id. Para “por agencia” sin columna, agrupa por
+   customers.state, sales.channel, customers.segment, sales.seller o usa mv_sales_monthly según el esquema.
 10) Si preguntan si una unidad o VIN concreto tiene seguro o póliza, consulta insurance_policies unido a
     vehicles (por vehicle_id o vin); no mezcles con listados de oportunidades comerciales salvo que lo pidan explícito.
     En el dataset demo, policy_status usa valores en español: activa, vencida, cancelada (no uses 'active' ni
@@ -57,6 +59,7 @@ Reglas obligatorias:
     - service_appointments: agenda de citas. Tiene appointment_date, appointment_status, cancellation_reason, attended. NO tiene cost, notes ni service_date.
     - Para costos o montos de servicio usa siempre services.cost, NUNCA service_appointments.cost (no existe).
     - Para la fecha de un servicio realizado usa services.service_date; para la fecha de una cita usa service_appointments.appointment_date.
+14) Usa COUNT(*) o COUNT(columna); nunca COUNT() vacío (inválido en PostgreSQL).
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -77,6 +80,9 @@ Reglas obligatorias:
 9) Si el contexto fija un VIN o vehicle_id, no lo reemplaces por subconsultas sobre services u otras tablas.
 10) Si el SQL usó un literal ficticio de VIN ('ultimo_vin', 'last_vin', etc.) y el contexto trae el VIN real,
     sustituye por el valor correcto entre comillas simples (escapando apóstrofos si los hay).
+11) Si el error es «column agency_id does not exist» (u otra columna inexistente) en sales u otra tabla de hechos,
+    elimina agency_id: en el demo suele no existir; agrupa por customers.state, sales.channel, segment o usa mv_sales_monthly.
+12) Corrige COUNT() sin argumento a COUNT(*).
 """
 
 

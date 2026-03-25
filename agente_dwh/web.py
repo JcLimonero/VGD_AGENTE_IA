@@ -11,6 +11,7 @@ if str(_root) not in sys.path:
 from agente_dwh.bootstrap_env import load_dotenv_from_project_root
 
 load_dotenv_from_project_root()
+import json
 import re
 from typing import Any
 
@@ -30,7 +31,7 @@ try:
         extract_method_from_question,
         is_forecast_intent,
     )
-    from .llm_local import LocalOllamaClient
+    from .llm_local import LLMError, LocalOllamaClient
     from .observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
 except ImportError:
     # Cuando Streamlit ejecuta el archivo como script, no hay paquete padre.
@@ -51,7 +52,7 @@ except ImportError:
         extract_method_from_question,
         is_forecast_intent,
     )
-    from agente_dwh.llm_local import LocalOllamaClient
+    from agente_dwh.llm_local import LLMError, LocalOllamaClient
     from agente_dwh.observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
 
 DEFAULT_DWH_URL = os.getenv("DEMO_DWH_URL") or os.getenv("DWH_URL") or ""
@@ -60,7 +61,11 @@ DEFAULT_LLM_MODEL = "qwen2.5-coder:7b"
 FALLBACK_LLM_MODEL = "qwen2.5:7b"
 DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
 - Regla: si la consulta muestra datos por vehículo (vehicles o vehicle_id), incluye siempre vin (JOIN vehicles si hace falta).
-- En DWH con sucursales, suele existir idAgency / agency_id en clientes u otras tablas; filtra por él para una agencia. (El dataset demo local no incluye idAgency.)
+- CRÍTICO — columna agency_id / idAgency: en ESTE esquema demo NO EXISTE en sales, services, service_appointments,
+  insurance_policies, customers ni vehicles. NUNCA escribas sales.agency_id ni GROUP BY agency_id sobre sales.
+  Si preguntan por agencia/sucursal y no hay esa columna en el esquema, usa alternativas del demo: estado del cliente
+  (customers.state vía JOIN desde sales), canal (sales.channel), segmento (customers.segment), vendedor (sales.seller),
+  o la vista agregada mv_sales_monthly. En otros DWH reales puede existir agency_id solo donde el esquema lo liste explícitamente.
 - customers(id, customer_code, full_name, gender, age, birth_date, email, phone, city, state, segment, monthly_income, risk_profile, created_at)
 - vehicles(id, customer_id, vin, plate, brand, model, unit_type, year, fuel_type, mileage, created_at)
 - sales(id, customer_id, vehicle_id, sale_date, amount, channel, seller, payment_method, status)
@@ -74,6 +79,7 @@ IMPORTANTE — services vs service_appointments:
 - Si necesitas estado de una cita, usa service_appointments.appointment_status (no status).
 
 - insurance_policies(id, customer_id, vehicle_id, policy_start_date, policy_end_date, insurer, coverage_type, annual_premium, policy_status, claim_count, last_claim_date)  ← policy_status: activa, vencida, cancelada (no 'active')
+- mv_sales_monthly(year_month, state, channel, segment, total_sales, sales_count)  ← agregados por mes; útil para tendencias sin fila a fila
 
 Relaciones:
 - customers.id = vehicles.customer_id
@@ -236,6 +242,22 @@ SPANISH_VALUE_LABELS: dict[str, str] = {
     "mujer": "Mujer",
     "hombre": "Hombre",
 }
+
+NL_SUMMARY_MAX_ROWS_LLM = 35
+NL_HEURISTIC_MAX_ROWS = 8
+NL_SUMMARY_MAX_COLS_HEURISTIC = 16
+NL_TRUNCATE_CELL_LEN = 140
+
+NL_SUMMARY_SYSTEM_PROMPT = """Eres un asistente de analítica que explica resultados de consultas a datos.
+Responde SIEMPRE en español, en tono claro y profesional.
+
+Reglas:
+1) Usa solo información presente en el JSON de datos; no inventes filas, columnas ni cifras.
+2) Entre 1 y 4 frases cortas, o un párrafo breve. Si la pregunta pide un dato concreto (p. ej. un número de póliza, un total), menciónalo en la primera frase.
+3) Si hay muchas filas en el total, resume el patrón o los extremos relevantes y aclara que el detalle completo está en la tabla.
+4) No uses tablas markdown. Puedes usar listas cortas con guiones si ayudan.
+5) No repitas la pregunta literalmente al inicio; ve al resultado."""
+
 MXN_COLUMNS = {"monthly_income", "amount", "cost", "annual_premium"}
 TIME_IN_DAYS_COLUMNS = {
     "avg_repurchase_days",
@@ -469,6 +491,114 @@ def _prepare_result_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
     return pretty_df
 
 
+def _make_summary_llm_client(
+    llm_endpoint: str,
+    llm_model: str,
+    *,
+    llm_timeout_seconds: int,
+    llm_temperature: float,
+) -> LocalOllamaClient:
+    """Cliente Ollama para resumen en lenguaje natural (temperatura ligeramente mayor que SQL)."""
+    return LocalOllamaClient(
+        base_url=llm_endpoint.strip(),
+        model_name=llm_model.strip(),
+        timeout_seconds=int(llm_timeout_seconds),
+        temperature=min(0.5, float(llm_temperature) + 0.15),
+    )
+
+
+def _truncate_summary_cell(value: Any, max_len: int = NL_TRUNCATE_CELL_LEN) -> str:
+    s = _metric_display_value(value)
+    if len(s) > max_len:
+        return s[: max_len - 1] + "…"
+    return s
+
+
+def _heuristic_answer_summary(rows: list[dict[str, Any]]) -> str | None:
+    """
+    Resumen sin LLM. Devuelve None si conviene delegar al modelo (muchas filas o muchas columnas).
+    """
+    if not rows:
+        return (
+            "La consulta no devolvió ninguna fila. Puedes ampliar criterios o revisar el detalle en la tabla."
+        )
+    df = _prepare_result_dataframe(rows)
+    n_rows, n_cols = len(df), len(df.columns)
+    if n_rows == 1:
+        lines = ["Según los datos consultados:"]
+        for col in df.columns:
+            label = str(col)
+            val = _truncate_summary_cell(df.iloc[0][col])
+            lines.append(f"- **{label}:** {val}")
+        return "\n".join(lines)
+    if n_rows <= NL_HEURISTIC_MAX_ROWS and n_cols <= NL_SUMMARY_MAX_COLS_HEURISTIC:
+        lines: list[str] = []
+        for i in range(n_rows):
+            pairs: list[str] = []
+            for col in df.columns:
+                pairs.append(f"**{col}:** {_truncate_summary_cell(df.iloc[i][col])}")
+            lines.append(f"{i + 1}. " + " · ".join(pairs))
+        return "\n".join(lines)
+    return None
+
+
+def _llm_answer_summary(
+    llm: LocalOllamaClient,
+    question: str,
+    rows: list[dict[str, Any]],
+) -> str:
+    total = len(rows)
+    cap = min(total, NL_SUMMARY_MAX_ROWS_LLM)
+    sample = rows[:cap]
+    pretty_df = _prepare_result_dataframe(sample)
+    pretty_records = pretty_df.to_dict(orient="records")
+    payload = json.dumps(pretty_records, ensure_ascii=False, default=str)
+    user_msg = (
+        f"Pregunta del usuario:\n{question.strip()}\n\n"
+        f"Total de filas devueltas por la consulta: {total}\n"
+        f"Muestra en JSON (hasta {cap} filas):\n{payload}"
+    )
+    return llm.generate_natural_language(
+        system_prompt=NL_SUMMARY_SYSTEM_PROMPT,
+        user_prompt=user_msg,
+    )
+
+
+def _fallback_summary_after_llm_failure(rows: list[dict[str, Any]]) -> str:
+    h = _heuristic_answer_summary(rows)
+    if h is not None:
+        return h
+    return (
+        "No se pudo generar un resumen automático con el modelo. "
+        "Usa **Ver datos** en el panel inferior para revisar la tabla completa."
+    )
+
+
+def _compute_hybrid_answer_summary(
+    question: str,
+    rows: list[dict[str, Any]],
+    llm: LocalOllamaClient | None,
+) -> str:
+    if not rows:
+        return _heuristic_answer_summary(rows) or ""
+
+    if len(rows) == 1 and llm is not None:
+        try:
+            return _llm_answer_summary(llm, question, rows)
+        except LLMError:
+            return _heuristic_answer_summary(rows) or ""
+
+    h = _heuristic_answer_summary(rows)
+    if h is not None:
+        return h
+    if llm is not None:
+        try:
+            return _llm_answer_summary(llm, question, rows)
+        except LLMError:
+            return _fallback_summary_after_llm_failure(rows)
+    return _fallback_summary_after_llm_failure(rows)
+
+
 def _rows_have_numeric_for_chart(rows: list[dict[str, Any]]) -> bool:
     """True si hay al menos una columna numérica en bruto (antes de formatear para pantalla)."""
     if not rows:
@@ -493,7 +623,7 @@ def _metric_display_value(value: Any) -> str:
     return s
 
 
-def _render_rows(rows: list[dict[str, Any]]) -> None:
+def _render_rows(rows: list[dict[str, Any]], *, widget_key_prefix: str = "") -> None:
     if not rows:
         st.info("La consulta no regresó filas.")
         return
@@ -504,29 +634,40 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
         excel_buffer = BytesIO()
         with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
             pretty_df.to_excel(writer, index=False, sheet_name="Resultados")
-        st.download_button(
-            label="Descargar resultados en Excel",
-            data=excel_buffer.getvalue(),
-            file_name="resultados_consulta.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+        excel_btn: dict[str, Any] = {
+            "label": "Descargar resultados en Excel",
+            "data": excel_buffer.getvalue(),
+            "file_name": "resultados_consulta.xlsx",
+            "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "use_container_width": True,
+        }
+        if widget_key_prefix:
+            excel_btn["key"] = f"{widget_key_prefix}download_excel_results"
+        st.download_button(**excel_btn)
     except ModuleNotFoundError:
         csv_data = pretty_df.to_csv(index=False).encode("utf-8-sig")
         st.info("Exportación Excel no disponible en este entorno. Descarga CSV habilitada.")
-        st.download_button(
-            label="Descargar resultados en CSV",
-            data=csv_data,
-            file_name="resultados_consulta.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+        csv_btn: dict[str, Any] = {
+            "label": "Descargar resultados en CSV",
+            "data": csv_data,
+            "file_name": "resultados_consulta.csv",
+            "mime": "text/csv",
+            "use_container_width": True,
+        }
+        if widget_key_prefix:
+            csv_btn["key"] = f"{widget_key_prefix}download_csv_results"
+        st.download_button(**csv_btn)
 
 
-def _render_chart_options(rows: list[dict[str, Any]]) -> None:
+def _render_chart_options(rows: list[dict[str, Any]], *, widget_key_prefix: str = "") -> None:
     """Gráficas con columnas numéricas; si no hay, tabla y/o tarjetas (métricas)."""
     if not rows:
         return
+
+    kp = widget_key_prefix
+    sx = f"{kp}chart_x_col"
+    sy = f"{kp}chart_y_col"
+    st_chart_type = f"{kp}chart_type"
 
     df = _translate_dataframe_values(pd.DataFrame(rows))
     if df.empty:
@@ -551,7 +692,7 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
                     cols[j].metric(_friendly_column_name(raw_key), _metric_display_value(val))
         else:
             st.dataframe(pretty_df, use_container_width=True)
-            st.caption("Descarga Excel o CSV en la sección **Resultados**.")
+            st.caption("Descarga Excel o CSV en **Detalle (tabla y descarga)**.")
         return
 
     # Cuando la consulta devuelve un único valor numérico (por ejemplo, un promedio),
@@ -579,33 +720,38 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         return
 
     st.markdown("### Graficar resultados")
-    chart_type = st.selectbox("Tipo de gráfica", ["Barras", "Línea", "Área"], index=0)
+    chart_type = st.selectbox(
+        "Tipo de gráfica",
+        ["Barras", "Línea", "Área"],
+        index=0,
+        key=st_chart_type,
+    )
 
     x_candidates = list(df.columns)
     label_map = {col: _friendly_column_name(col) for col in x_candidates}
 
     # Evita errores cuando cambian las columnas entre consultas y el estado previo queda inválido.
-    if "chart_x_col" not in st.session_state or st.session_state["chart_x_col"] not in x_candidates:
-        st.session_state["chart_x_col"] = x_candidates[0]
-    if "chart_y_col" not in st.session_state or st.session_state["chart_y_col"] not in numeric_cols:
-        st.session_state["chart_y_col"] = numeric_cols[0]
+    if sx not in st.session_state or st.session_state[sx] not in x_candidates:
+        st.session_state[sx] = x_candidates[0]
+    if sy not in st.session_state or st.session_state[sy] not in numeric_cols:
+        st.session_state[sy] = numeric_cols[0]
 
     x_col = st.selectbox(
         "Columna eje X",
         x_candidates,
-        key="chart_x_col",
+        key=sx,
         format_func=lambda value: label_map.get(value, str(value)),
     )
     y_candidates = [col for col in numeric_cols if col != x_col]
     if not y_candidates:
         st.info("No hay una segunda columna numérica disponible para eje Y.")
         return
-    if "chart_y_col" not in st.session_state or st.session_state["chart_y_col"] not in y_candidates:
-        st.session_state["chart_y_col"] = y_candidates[0]
+    if sy not in st.session_state or st.session_state[sy] not in y_candidates:
+        st.session_state[sy] = y_candidates[0]
     y_col = st.selectbox(
         "Columna eje Y (numérica)",
         y_candidates,
-        key="chart_y_col",
+        key=sy,
         format_func=lambda value: label_map.get(value, str(value)),
     )
 
@@ -632,6 +778,24 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         st.line_chart(chart_df[[friendly_y]], use_container_width=True)
     else:
         st.area_chart(chart_df[[friendly_y]], use_container_width=True)
+
+
+CHAT_DATA_DIALOG_REQUEST_KEY = "chat_data_dialog_request"
+
+
+@st.dialog("Gráfica", width="large")
+def _open_chat_chart_dialog(rows: list[dict[str, Any]]) -> None:
+    """Modal: misma vista de gráfica / datos que el panel principal."""
+    if not rows:
+        st.info("Sin filas para mostrar.")
+        return
+    _render_chart_options(rows, widget_key_prefix="dlg_chat_chart_")
+
+
+@st.dialog("Detalle", width="large")
+def _open_chat_detail_dialog(rows: list[dict[str, Any]]) -> None:
+    """Modal: tabla y descarga."""
+    _render_rows(rows, widget_key_prefix="dlg_chat_detail_")
 
 
 def _extract_pg_hba_ip(error_message: str) -> str:
@@ -663,8 +827,14 @@ def _format_conversation_transcript(
         if t.get("error"):
             lines.append(f"Error al ejecutar: {t['error']}")
             continue
+        if t.get("kind") == "chitchat":
+            lines.append(f"Asistente: {t.get('answer_summary', '')}")
+            continue
         if t.get("kind") == "forecast":
             lines.append("Asistente: pronóstico de ventas (cálculo en Python).")
+            fs = (t.get("answer_summary") or "").strip()
+            if fs:
+                lines.append(f"Resumen al usuario: {fs}")
             sql = t.get("sql") or ""
             lines.append(f"SQL fuente histórico: {sql[:800]}" + ("..." if len(sql) > 800 else ""))
             lines.append(f"Filas de salida del pronóstico: {t.get('rows', 0)}")
@@ -673,6 +843,9 @@ def _format_conversation_transcript(
         lines.append(f"SQL ejecutado: {sql[:1200]}" + ("..." if len(sql) > 1200 else ""))
         if t.get("kpi"):
             lines.append(f"KPI determinístico: {t['kpi']}")
+        summary_u = (t.get("answer_summary") or "").strip()
+        if summary_u:
+            lines.append(f"Resumen entregado al usuario: {summary_u}")
         lines.append(f"Filas devueltas: {t.get('rows', 0)}")
     if vehicle_focus:
         vf_bits: list[str] = []
@@ -694,28 +867,133 @@ def _format_conversation_transcript(
     return "\n".join(lines)
 
 
+_CHITCHAT_MAX_LEN = 140
+_RE_CHITCHAT_GREETING = re.compile(
+    r"^\s*(?:"
+    r"hola[!¡.\s]*|"
+    r"buen(?:os|as)\s+(?:d[ií]as|tardes|noches)[!¡.\s]*|"
+    r"(?:hey|hi|hello|buenas)[!¡.\s]*|"
+    r"¿?qu[eé]\s+tal\??[!.\s]*|"
+    r"¿?c[oó]mo\s+est[aá]s?\??[!.\s]*|"
+    r"saludos[!¡.\s]*|"
+    r"buen\s+d[ií]a[!¡.\s]*"
+    r")\s*$",
+    re.IGNORECASE | re.UNICODE,
+)
+_RE_CHITCHAT_THANKS = re.compile(
+    r"^\s*(?:muchas\s+)?gracias(?:\s+(?:todo|mil))?[!¡.\s]*$",
+    re.IGNORECASE | re.UNICODE,
+)
+_RE_CHITCHAT_BYE = re.compile(
+    r"^\s*(?:adios|adiós|hasta\s+luego|chao|chau|bye|nos\s+vemos)[!¡.\s]*$",
+    re.IGNORECASE | re.UNICODE,
+)
+_RE_CHITCHAT_HELP = re.compile(
+    r"^\s*(?:"
+    r"qui[eé]n\s+eres\??|"
+    r"qu[eé]\s+eres\??|"
+    r"qu[eé]\s+haces\??|"
+    r"en\s+qu[eé]\s+me\s+ayudas\??|"
+    r"para\s+qu[eé]\s+sirves\??|"
+    r"ayuda"
+    r")\s*$",
+    re.IGNORECASE | re.UNICODE,
+)
+_RE_CHITCHAT_ACK = re.compile(
+    r"^\s*(?:ok|okay|vale|perfecto|entendido|listo|genial)[!¡.\s]*$",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _chitchat_reply(user_text: str) -> str | None:
+    """
+    Mensajes muy cortos y solo conversacionales: respuesta fija sin llamar al DWH ni al LLM.
+    Si el texto parece una pregunta de datos, devuelve None.
+    """
+    t = user_text.strip()
+    if not t or len(t) > _CHITCHAT_MAX_LEN:
+        return None
+    if _RE_CHITCHAT_GREETING.match(t):
+        return (
+            "¡Hola! Soy el asistente del **Panel de Inteligencia Comercial**. "
+            "Puedo ayudarte a consultar tu almacén de datos: clientes, ventas, servicios, citas, seguros, etc.\n\n"
+            "Pregunta en lenguaje natural, por ejemplo: *¿Cuántos clientes hay por estado?* o *Top talleres con más no show*."
+        )
+    if _RE_CHITCHAT_THANKS.match(t):
+        return "De nada. Cuando quieras, sigue con otra pregunta sobre tus datos."
+    if _RE_CHITCHAT_BYE.match(t):
+        return "¡Hasta pronto! Aquí estaré cuando necesites consultar tu negocio."
+    if _RE_CHITCHAT_HELP.match(t):
+        return (
+            "Soy un asistente que **traduce tus preguntas a SQL**, ejecuta la consulta en el DWH y te responde "
+            "con un resumen y tablas o gráficas. No sustituyo a un analista para decisiones finales, "
+            "pero acelero explorar métricas y listados."
+        )
+    if _RE_CHITCHAT_ACK.match(t):
+        return "Perfecto. Dime qué te gustaría revisar en los datos."
+    return None
+
+
 def _render_natural_chat_block() -> tuple[str, bool]:
     """Historial tipo chat + entrada. Devuelve (mensaje efectivo, si hay que ejecutar consulta)."""
     st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, [])
     turns: list[dict[str, Any]] = st.session_state[SESSION_KEY_CHAT_TURNS]
-    for turn in turns:
+    last_turn_idx = len(turns) - 1
+    for turn_idx, turn in enumerate(turns):
         with st.chat_message("user"):
             st.markdown(turn.get("user", ""))
         with st.chat_message("assistant"):
             if turn.get("error"):
                 st.error(turn["error"])
+            elif turn.get("kind") == "chitchat":
+                st.markdown(turn.get("answer_summary") or "¡Hola!")
             elif turn.get("kind") == "forecast":
-                st.markdown("**Pronóstico de ventas** (serie histórica + estimación).")
+                fc_reply = (turn.get("answer_summary") or "").strip()
+                if fc_reply:
+                    st.markdown(fc_reply)
+                else:
+                    st.markdown("**Pronóstico de ventas** (serie histórica + estimación).")
                 if _is_developer_ui() and turn.get("sql"):
                     st.code(turn["sql"], language="sql")
-                st.caption(f"{turn.get('rows', 0)} filas en la tabla de pronóstico")
+                if not fc_reply:
+                    st.caption(f"{turn.get('rows', 0)} filas en la tabla de pronóstico")
             else:
+                reply = (turn.get("answer_summary") or "").strip()
+                row_n = int(turn.get("rows") or 0)
+                if reply:
+                    st.markdown(reply)
+                if row_n > 0 and turn_idx == last_turn_idx:
+                    with st.popover("Ver datos", help="Abre gráfica o detalle en un cuadro de diálogo."):
+                        if st.button(
+                            "Gráfica",
+                            use_container_width=True,
+                            key="chat_data_menu_chart",
+                        ):
+                            st.session_state[CHAT_DATA_DIALOG_REQUEST_KEY] = "chart"
+                            st.rerun()
+                        if st.button(
+                            "Detalle",
+                            use_container_width=True,
+                            key="chat_data_menu_detail",
+                        ):
+                            st.session_state[CHAT_DATA_DIALOG_REQUEST_KEY] = "detail"
+                            st.rerun()
                 if _is_developer_ui():
                     st.code(turn.get("sql") or "", language="sql")
-                cap = f"{turn.get('rows', 0)} filas"
-                if turn.get("kpi"):
-                    cap += f" · KPI: {turn['kpi']}"
-                st.caption(cap)
+                if not reply:
+                    cap = f"{turn.get('rows', 0)} filas"
+                    if turn.get("kpi"):
+                        cap += f" · KPI: {turn['kpi']}"
+                    st.caption(cap)
+
+    dlg_req = st.session_state.pop(CHAT_DATA_DIALOG_REQUEST_KEY, None)
+    lr_dlg = st.session_state.get(SESSION_KEY_LAST_QUERY_VIEW)
+    if dlg_req and lr_dlg and lr_dlg.get("kind") == "agent":
+        _dlg_rows = lr_dlg["result"].rows
+        if dlg_req == "chart":
+            _open_chat_chart_dialog(_dlg_rows)
+        elif dlg_req == "detail":
+            _open_chat_detail_dialog(_dlg_rows)
 
     pending = st.session_state.pop(SESSION_KEY_PENDING_CHAT, None)
     chat_raw = st.chat_input("Pregunta en lenguaje natural sobre tus datos…")
@@ -731,6 +1009,7 @@ SESSION_KEY_PENDING_CHAT = "pending_chat_question"
 SESSION_KEY_DISAMBIG = "disambig_pending"
 SESSION_KEY_DISAMBIG_DONE = "disambig_just_resolved"
 SESSION_KEY_DEVELOPER_UI = "developer_ui_mode"
+SESSION_KEY_SHOW_QUERY_EXTRA_PANELS = "show_query_extra_panels"
 
 
 def _is_developer_ui() -> bool:
@@ -1126,7 +1405,7 @@ def _render_vehicle_follow_up_section(rows: list[dict[str, Any]]) -> None:
             eligible.append((idx, row, foc))
     if not eligible:
         return
-    with st.expander("Seguimiento por unidad", expanded=True):
+    with st.expander("Seguimiento por unidad", expanded=False):
         st.caption(
             "Elige una fila de este resultado y pulsa el botón: las siguientes preguntas "
             "llevarán VIN / vehicle_id / placa al modelo sin que tengas que repetirlos."
@@ -1161,7 +1440,7 @@ def _render_agency_follow_up_section(rows: list[dict[str, Any]]) -> None:
             eligible.append((idx, row, foc))
     if not eligible:
         return
-    with st.expander("Seguimiento por agencia", expanded=True):
+    with st.expander("Seguimiento por agencia", expanded=False):
         st.caption(
             "Elige una fila con identificador de agencia (p. ej. idAgency) y pulsa el botón: "
             "las siguientes preguntas añadirán ese contexto al modelo."
@@ -1188,24 +1467,62 @@ def _prepare_new_result_view() -> None:
     """Resetea estado visual de resultados para una búsqueda nueva."""
     st.session_state.pop("chart_x_col", None)
     st.session_state.pop("chart_y_col", None)
+    st.session_state.pop("chart_type", None)
     st.session_state.pop("vehicle_follow_up_pick", None)
     st.session_state.pop("agency_follow_up_pick", None)
+    st.session_state.pop(SESSION_KEY_SHOW_QUERY_EXTRA_PANELS, None)
+    for _k in list(st.session_state.keys()):
+        if isinstance(_k, str) and (
+            _k.startswith("dlg_chat_chart_") or _k.startswith("dlg_chat_detail_")
+        ):
+            st.session_state.pop(_k, None)
+
+
+def _maybe_cache_answer_summary(result: Any, text: str) -> None:
+    """Evita llamadas repetidas al LLM al re-renderizar la última vista del chat."""
+    lr = st.session_state.get(SESSION_KEY_LAST_QUERY_VIEW)
+    if (
+        lr
+        and lr.get("kind") == "agent"
+        and lr.get("result") is result
+        and not (lr.get("answer_summary") or "").strip()
+    ):
+        st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {**lr, "answer_summary": text}
 
 
 def _render_query_result(
     result: Any,
     model_used: str | None = None,
     cache_stats: dict[str, Any] | None = None,
+    *,
+    llm_for_summary: LocalOllamaClient | None = None,
+    answer_summary_cached: str | None = None,
 ) -> None:
-    """Renderiza resultado SQL: gráfica si hay columnas numéricas; si no, tabla/tarjetas."""
+    """Resumen en lenguaje natural arriba; gráfica; detalle en tabla (expander)."""
     rows = result.rows
-    has_numeric = _rows_have_numeric_for_chart(rows) if rows else False
-    first_title = "Gráfica" if not rows or has_numeric else "Vista de datos"
-    first_expanded = bool(rows)
-    results_expanded = bool(rows) and not has_numeric
+    cached = (answer_summary_cached or "").strip()
+    if cached:
+        summary_text = cached
+    else:
+        summary_text = _compute_hybrid_answer_summary(result.question, rows, llm_for_summary)
+    _maybe_cache_answer_summary(result, summary_text)
 
-    with st.expander(first_title, expanded=first_expanded):
-        _render_chart_options(rows)
+    head_l, head_r = st.columns([4, 1])
+    with head_l:
+        st.markdown("### Respuesta")
+    with head_r:
+        panels_open = bool(st.session_state.get(SESSION_KEY_SHOW_QUERY_EXTRA_PANELS, False))
+        toggle_label = "Ocultar datos" if panels_open else "Ver datos"
+        if st.button(
+            toggle_label,
+            key="btn_toggle_query_extra_panels",
+            use_container_width=True,
+            help="Muestra u oculta gráfica o vista de datos, tabla con descarga y seguimiento por unidad/agencia.",
+        ):
+            st.session_state[SESSION_KEY_SHOW_QUERY_EXTRA_PANELS] = not panels_open
+            st.rerun()
+
+    st.markdown(summary_text)
 
     if _is_developer_ui():
         with st.expander("SQL generado", expanded=False):
@@ -1213,9 +1530,25 @@ def _render_query_result(
             if model_used:
                 st.caption(f"Modelo usado: {model_used}")
 
-    results_expanded_effective = results_expanded or (not _is_developer_ui() and bool(rows))
-    with st.expander("Resultados", expanded=results_expanded_effective):
-        _render_rows(rows)
+    if st.session_state.get(SESSION_KEY_SHOW_QUERY_EXTRA_PANELS, False):
+        has_numeric = _rows_have_numeric_for_chart(rows) if rows else False
+        first_title = "Gráfica" if not rows or has_numeric else "Vista de datos"
+
+        with st.expander(first_title, expanded=False):
+            _render_chart_options(rows)
+
+        with st.expander("Detalle (tabla y descarga)", expanded=False):
+            _render_rows(rows)
+
+        _render_vehicle_follow_up_section(rows)
+        _render_agency_follow_up_section(rows)
+        hom_ag = _all_rows_same_agency_focus(rows) if rows else None
+        if hom_ag and not st.session_state.get("auto_focus_agency_homogeneous", False):
+            st.info(
+                f"Todas las filas corresponden a la agencia **{hom_ag['id_agency']}**. "
+                "Puedes fijarla arriba en **Seguimiento por agencia**, o activar en Configuración "
+                "«Auto: fijar agencia si todas las filas coinciden» para hacerlo solo al consultar."
+            )
 
     if _is_developer_ui():
         with st.expander("Salida JSON", expanded=False):
@@ -1233,16 +1566,6 @@ def _render_query_result(
                 payload["modelo_usado"] = model_used
             st.json(payload)
 
-    _render_vehicle_follow_up_section(rows)
-    _render_agency_follow_up_section(rows)
-    hom_ag = _all_rows_same_agency_focus(rows) if rows else None
-    if hom_ag and not st.session_state.get("auto_focus_agency_homogeneous", False):
-        st.info(
-            f"Todas las filas corresponden a la agencia **{hom_ag['id_agency']}**. "
-            "Puedes fijarla arriba en **Seguimiento por agencia**, o activar en Configuración "
-            "«Auto: fijar agencia si todas las filas coinciden» para hacerlo solo al consultar."
-        )
-
 
 def _render_forecast_result(result: Any, cache_stats: dict[str, Any] | None = None) -> None:
     st.subheader("Pronóstico de ventas")
@@ -1251,7 +1574,7 @@ def _render_forecast_result(result: Any, cache_stats: dict[str, Any] | None = No
         f"Nivel: {FORECAST_DIMENSIONS.get(result.dimension, result.dimension)}"
     )
 
-    with st.expander("Gráfica", expanded=True):
+    with st.expander("Gráfica", expanded=False):
         chart_df = pd.DataFrame(result.chart_rows)
         if chart_df.empty:
             st.info("No hay datos suficientes para construir la gráfica del pronóstico.")
@@ -1264,8 +1587,7 @@ def _render_forecast_result(result: Any, cache_stats: dict[str, Any] | None = No
         with st.expander("SQL generado", expanded=False):
             st.code(result.source_sql, language="sql")
 
-    results_expanded_demo = not _is_developer_ui()
-    with st.expander("Resultados", expanded=results_expanded_demo):
+    with st.expander("Resultados", expanded=False):
         forecast_df = pd.DataFrame(result.forecast_rows)
         if forecast_df.empty:
             st.warning("No se pudo construir pronóstico con los datos actuales.")
@@ -1715,6 +2037,13 @@ def main() -> None:
                     lr["result"],
                     model_used=lr.get("model_used"),
                     cache_stats=lr.get("cache_stats"),
+                    llm_for_summary=_make_summary_llm_client(
+                        llm_endpoint.strip(),
+                        str(lr.get("model_used") or llm_model).strip(),
+                        llm_timeout_seconds=int(llm_timeout),
+                        llm_temperature=float(llm_temperature),
+                    ),
+                    answer_summary_cached=lr.get("answer_summary"),
                 )
             _render_observability_panel(cache_stats=lr.get("cache_stats"))
         return
@@ -1724,11 +2053,33 @@ def main() -> None:
         st.info("Escribe tu pregunta y presiona 'Consultar'.")
         return
 
-    if not dwh_url.strip():
-        st.error("Debes indicar DWH_URL.")
-        return
     if not effective_question.strip():
         st.error("Debes escribir una pregunta.")
+        return
+
+    if should_run:
+        small_talk = _chitchat_reply(effective_question.strip())
+        if small_talk is not None:
+            _prepare_new_result_view()
+            if natural_chat:
+                st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, []).append(
+                    {
+                        "user": effective_question.strip(),
+                        "kind": "chitchat",
+                        "sql": "",
+                        "rows": 0,
+                        "error": None,
+                        "kpi": "",
+                        "answer_summary": small_talk,
+                    }
+                )
+                st.session_state.pop(SESSION_KEY_LAST_QUERY_VIEW, None)
+                st.rerun()
+            st.markdown(small_talk)
+            return
+
+    if not dwh_url.strip():
+        st.error("Debes indicar DWH_URL.")
         return
 
     _prepare_new_result_view()
@@ -1780,13 +2131,18 @@ def main() -> None:
 
         cache_stats = dwh.get_cache_stats()
         if natural_chat:
+            fc_n = len(forecast_result.forecast_rows)
             st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, []).append(
                 {
                     "user": effective_question,
                     "kind": "forecast",
                     "sql": forecast_result.source_sql,
-                    "rows": len(forecast_result.forecast_rows),
+                    "rows": fc_n,
                     "error": None,
+                    "answer_summary": (
+                        f"Pronóstico de ventas listo: **{fc_n}** periodos en la tabla de resultados. "
+                        "Puedes abrir la gráfica y el detalle cuando los necesites."
+                    ),
                 }
             )
             st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
@@ -1830,6 +2186,17 @@ def main() -> None:
                 vehicle_focus=vf,
             )
             cache_stats = agent._dwh.get_cache_stats()  # noqa: SLF001
+            summary_llm = _make_summary_llm_client(
+                llm_endpoint.strip(),
+                llm_model.strip(),
+                llm_timeout_seconds=int(llm_timeout),
+                llm_temperature=float(llm_temperature),
+            )
+            answer_summary_precomputed = _compute_hybrid_answer_summary(
+                result.question,
+                result.rows,
+                summary_llm,
+            )
         except Exception as exc:  # noqa: BLE001
             message = str(exc)
             st.error(f"Error ejecutando consulta: {message}")
@@ -1888,6 +2255,17 @@ def main() -> None:
                             vehicle_focus=vf_fb,
                         )
                         cache_stats = fallback_agent._dwh.get_cache_stats()  # noqa: SLF001
+                        summary_llm_fb = _make_summary_llm_client(
+                            llm_endpoint.strip(),
+                            FALLBACK_LLM_MODEL,
+                            llm_timeout_seconds=int(llm_timeout),
+                            llm_temperature=float(llm_temperature),
+                        )
+                        answer_summary_fb = _compute_hybrid_answer_summary(
+                            result.question,
+                            result.rows,
+                            summary_llm_fb,
+                        )
                         st.success(f"Consulta recuperada usando fallback: {FALLBACK_LLM_MODEL}")
                         _apply_auto_agency_focus_and_show_banners(result.rows)
                         if natural_chat:
@@ -1898,6 +2276,7 @@ def main() -> None:
                                     "rows": len(result.rows),
                                     "error": None,
                                     "kpi": result.deterministic_kpi or "",
+                                    "answer_summary": answer_summary_fb,
                                 }
                             )
                             st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
@@ -1905,12 +2284,14 @@ def main() -> None:
                                 "result": result,
                                 "cache_stats": cache_stats,
                                 "model_used": FALLBACK_LLM_MODEL,
+                                "answer_summary": answer_summary_fb,
                             }
                             st.rerun()
                         _render_query_result(
                             result,
                             model_used=FALLBACK_LLM_MODEL,
                             cache_stats=cache_stats,
+                            answer_summary_cached=answer_summary_fb,
                         )
                         _render_observability_panel(cache_stats=cache_stats)
                         return
@@ -1948,6 +2329,7 @@ def main() -> None:
                 "rows": len(result.rows),
                 "error": None,
                 "kpi": result.deterministic_kpi or "",
+                "answer_summary": answer_summary_precomputed,
             }
         )
         st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
@@ -1955,9 +2337,15 @@ def main() -> None:
             "result": result,
             "cache_stats": cache_stats,
             "model_used": llm_model.strip(),
+            "answer_summary": answer_summary_precomputed,
         }
         st.rerun()
-    _render_query_result(result, cache_stats=cache_stats)
+    _render_query_result(
+        result,
+        model_used=llm_model.strip(),
+        cache_stats=cache_stats,
+        answer_summary_cached=answer_summary_precomputed,
+    )
     _render_observability_panel(cache_stats=cache_stats)
 
 
