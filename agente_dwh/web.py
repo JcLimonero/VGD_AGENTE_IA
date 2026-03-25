@@ -13,6 +13,7 @@ from agente_dwh.bootstrap_env import load_dotenv_from_project_root
 load_dotenv_from_project_root()
 import json
 import re
+import html
 from typing import Any
 
 import streamlit as st
@@ -1162,14 +1163,20 @@ def _chitchat_reply(user_text: str) -> str | None:
     return None
 
 
+def _render_user_chat_text(text: str) -> None:
+    """Render seguro para identificar mensajes de usuario en CSS."""
+    safe = html.escape((text or "").strip()).replace("\n", "<br>")
+    st.markdown(f'<div class="chat-user-text">{safe}</div>', unsafe_allow_html=True)
+
+
 def _render_natural_chat_block() -> tuple[str, bool]:
     """Historial tipo chat + entrada. Devuelve (mensaje efectivo, si hay que ejecutar consulta)."""
     st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, [])
     turns: list[dict[str, Any]] = st.session_state[SESSION_KEY_CHAT_TURNS]
     last_turn_idx = len(turns) - 1
     for turn_idx, turn in enumerate(turns):
-        with st.chat_message("user"):
-            st.markdown(turn.get("user", ""))
+        with st.chat_message("user", avatar="👤"):
+            _render_user_chat_text(turn.get("user", ""))
         with st.chat_message("assistant"):
             if turn.get("error"):
                 st.error(turn["error"])
@@ -1237,8 +1244,8 @@ def _render_natural_chat_block() -> tuple[str, bool]:
     should_run = bool(effective)
     # Muestra el mensaje del usuario en el mismo ciclo (antes de la respuesta / spinner en main).
     if should_run:
-        with st.chat_message("user"):
-            st.markdown(effective)
+        with st.chat_message("user", avatar="👤"):
+            _render_user_chat_text(effective)
     return effective, should_run
 
 
@@ -1434,8 +1441,8 @@ def _render_disambiguation_ui(
 ) -> None:
     """Muestra las opciones de desambiguación y, al hacer clic, inyecta la pregunta clarificada."""
     if natural_chat:
-        with st.chat_message("user"):
-            st.markdown(question)
+        with st.chat_message("user", avatar="👤"):
+            _render_user_chat_text(question)
         with st.chat_message("assistant"):
             st.markdown(f"**{rule['prompt']}**")
             for i, opt in enumerate(rule["options"]):
@@ -2181,25 +2188,25 @@ def main() -> None:
             width: 100%;
             align-items: flex-start;
         }}
-        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
+        [data-testid="stChatMessage"]:has(.chat-user-text) {{
             flex-direction: row-reverse;
             justify-content: flex-start;
             margin-left: auto;
             margin-right: 0;
             max-width: min(92%, 42rem);
         }}
-        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
-            [data-testid="stChatMessageContent"] {{
+        [data-testid="stChatMessage"]:has(.chat-user-text) [data-testid="stChatMessageContent"],
+        [data-testid="stChatMessage"]:has(.chat-user-text) [data-testid="stMarkdownContainer"] {{
             text-align: right;
         }}
-        [data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"])) {{
+        [data-testid="stChatMessage"]:not(:has(.chat-user-text)) {{
             flex-direction: row;
             justify-content: flex-start;
             margin-right: auto;
             margin-left: 0;
             max-width: min(92%, 48rem);
         }}
-        [data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"]))
+        [data-testid="stChatMessage"]:not(:has(.chat-user-text))
             [data-testid="stChatMessageContent"] {{
             text-align: left;
         }}
