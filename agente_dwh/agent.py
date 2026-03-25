@@ -12,6 +12,7 @@ from .sql_vehicle_context import apply_vehicle_focus_sql_rewrites
 
 SYSTEM_PROMPT = """Eres un asistente experto en SQL para analytics.
 Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
+Las preguntas del usuario están en español: interpreta la intención en español (los nombres de tablas/columnas del esquema pueden estar en inglés).
 
 Ejemplos de estilo (PostgreSQL; adapta tablas/columnas al esquema dado):
 - Pregunta: "¿Cuántos clientes hay por estado?"
@@ -60,6 +61,10 @@ Reglas obligatorias:
     - Para costos o montos de servicio usa siempre services.cost, NUNCA service_appointments.cost (no existe).
     - Para la fecha de un servicio realizado usa services.service_date; para la fecha de una cita usa service_appointments.appointment_date.
 14) Usa COUNT(*) o COUNT(columna); nunca COUNT() vacío (inválido en PostgreSQL).
+15) PostgreSQL y columnas DATE (p. ej. sales.sale_date): la resta fecha1 - fecha2 devuelve INTEGER (días),
+    no INTERVAL. NO uses EXTRACT(EPOCH FROM (fecha1 - fecha2)) (falla). Opciones válidas:
+    - Promedio en días: AVG(fecha1 - fecha2) o AVG((fecha1 - fecha2)::numeric).
+    - Si necesitas EPOCH: EXTRACT(EPOCH FROM (fecha1::timestamp - fecha2::timestamp)).
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -83,6 +88,8 @@ Reglas obligatorias:
 11) Si el error es «column agency_id does not exist» (u otra columna inexistente) en sales u otra tabla de hechos,
     elimina agency_id: en el demo suele no existir; agrupa por customers.state, sales.channel, segment o usa mv_sales_monthly.
 12) Corrige COUNT() sin argumento a COUNT(*).
+13) Si el error es «extract(unknown, integer)» o EXTRACT(EPOCH FROM ...) con resta de fechas DATE,
+    usa AVG(f1 - f2) en días o EXTRACT(EPOCH FROM (f1::timestamp - f2::timestamp)).
 """
 
 

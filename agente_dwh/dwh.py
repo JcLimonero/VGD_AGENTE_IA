@@ -154,6 +154,7 @@ class DwhClient:
         if self.dialect_name == "sqlite":
             normalized = self._normalize_sqlite_sql(normalized)
         elif self.dialect_name == "postgresql":
+            normalized = self._rewrite_postgresql_extract_epoch_from_date_subtraction(normalized)
             normalized = self._rewrite_postgresql_round_two_arg(normalized)
 
         return normalized
@@ -459,4 +460,30 @@ class DwhClient:
             pos = end
         out.append(sql[pos:])
         return "".join(out)
+
+    def _rewrite_postgresql_extract_epoch_from_date_subtraction(self, sql: str) -> str:
+        """
+        EXTRACT(EPOCH FROM (a - b)) falla si a y b son DATE: en PostgreSQL DATE - DATE = INTEGER (días),
+        no INTERVAL, y EXTRACT(EPOCH FROM integer) no existe. Castea a timestamp para obtener intervalo.
+        """
+
+        def repl(match: re.Match[str]) -> str:
+            inner = match.group("inner").strip()
+            binop = re.fullmatch(
+                r"([A-Za-z_][A-Za-z0-9_.]*)\s*-\s*([A-Za-z_][A-Za-z0-9_.]*)",
+                inner,
+            )
+            if not binop:
+                return match.group(0)
+            left, right = binop.group(1), binop.group(2)
+            return (
+                f"EXTRACT(EPOCH FROM ({left}::timestamp - {right}::timestamp))"
+            )
+
+        return re.sub(
+            r"EXTRACT\s*\(\s*EPOCH\s+FROM\s*\(\s*(?P<inner>[^()]+?)\s*\)\s*\)",
+            repl,
+            sql,
+            flags=re.IGNORECASE,
+        )
 

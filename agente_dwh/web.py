@@ -204,6 +204,21 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "appointment_conversion_rate": "Tasa de Conversión Citas",
     "cancelation_rate": "Tasa de Cancelación",
     "cancellation_rate": "Tasa de Cancelación",
+    # Alias frecuentes en agregados (LLM / inglés)
+    "sale_year": "Año de venta",
+    "sales_year": "Año de venta",
+    "year_of_sale": "Año de venta",
+    "sales_count": "Cantidad de ventas",
+    "sale_count": "Cantidad de ventas",
+    "num_sales": "Cantidad de ventas",
+    "n_sales": "Cantidad de ventas",
+    "total_amount": "Monto total",
+    "total_sales": "Total de ventas (monto)",
+    "sales_total": "Total de ventas (monto)",
+    "sum_amount": "Monto total",
+    "year_month": "Mes (año-mes)",
+    "revenue": "Ingresos",
+    "total_revenue": "Ingresos totales",
 }
 SPANISH_VALUE_LABELS: dict[str, str] = {
     # Estatus de venta/servicio/póliza
@@ -249,16 +264,59 @@ NL_SUMMARY_MAX_COLS_HEURISTIC = 16
 NL_TRUNCATE_CELL_LEN = 140
 
 NL_SUMMARY_SYSTEM_PROMPT = """Eres un asistente de analítica que explica resultados de consultas a datos.
-Responde SIEMPRE en español, en tono claro y profesional.
+Responde SIEMPRE y EXCLUSIVAMENTE en español (tono claro y profesional). No escribas en inglés ni en otro idioma;
+ni una frase mezclada. Única excepción: siglas o nombres propios inevitables (p. ej. VIN, SQL, una marca).
 
 Reglas:
 1) Usa solo información presente en el JSON de datos; no inventes filas, columnas ni cifras.
 2) Entre 1 y 4 frases cortas, o un párrafo breve. Si la pregunta pide un dato concreto (p. ej. un número de póliza, un total), menciónalo en la primera frase.
 3) Si hay muchas filas en el total, resume el patrón o los extremos relevantes y aclara que el detalle completo está en la tabla.
 4) No uses tablas markdown. Puedes usar listas cortas con guiones si ayudan.
-5) No repitas la pregunta literalmente al inicio; ve al resultado."""
+5) No repitas la pregunta literalmente al inicio; ve al resultado.
+6) Toda cantidad monetaria debe ir en pesos mexicanos con exactamente dos decimales, formato MXN $X,XXX.XX
+   (coma como separador de miles y punto decimal). No mezcles USD u otras divisas salvo que el dato lo indique explícitamente.
+7) Idioma: todo el texto visible para el usuario debe estar en español; si el JSON trae etiquetas en inglés,
+   tradúcelas al explicar (p. ej. «canal» en lugar de «channel» cuando describas la columna)."""
 
-MXN_COLUMNS = {"monthly_income", "amount", "cost", "annual_premium"}
+MXN_COLUMNS = frozenset({"monthly_income", "amount", "cost", "annual_premium"})
+_MXN_COLUMN_SYNONYMS = frozenset(
+    {
+        "total_amount",
+        "total_sales",
+        "sum_amount",
+        "sale_total",
+        "sales_total",
+        "total_revenue",
+        "revenue",
+        "subtotal",
+        "ingresos",
+        "ingresos_totales",
+        "monto_total",
+        "venta_total",
+        "avg_amount",
+        "average_amount",
+        "mean_amount",
+        "max_amount",
+        "min_amount",
+        "sale_amount",
+        "precio",
+        "precio_unitario",
+    }
+)
+
+
+def _column_is_mxn_formatted(name: Any) -> bool:
+    """True si la columna representa dinero y debe mostrarse como MXN $X,XXX.XX."""
+    key = str(name).strip().lower()
+    if key in MXN_COLUMNS or key in _MXN_COLUMN_SYNONYMS:
+        return True
+    if key.endswith("_amount"):
+        return True
+    if "_monto" in key or key.startswith("monto_"):
+        return True
+    return False
+
+
 TIME_IN_DAYS_COLUMNS = {
     "avg_repurchase_days",
     "avg_time_between_purchases",
@@ -443,10 +501,76 @@ def _translate_dataframe_values(df: pd.DataFrame) -> pd.DataFrame:
 
 def _format_mxn_value(value: Any) -> str:
     try:
-        number = float(value)
+        number = round(float(value), 2)
     except (TypeError, ValueError):
         return str(value)
     return f"MXN ${number:,.2f}"
+
+
+def _format_money_in_chat_text(text: str) -> str:
+    """
+    Normaliza cantidades monetarias reconocibles en texto (resúmenes, chat) a MXN $X,XXX.XX.
+    Idempotente con textos que ya usan el mismo formato.
+    """
+    if not text:
+        return text
+
+    def norm_num(raw: str) -> float | None:
+        t = raw.strip().replace(" ", "").replace(",", "")
+        if not t or t in (".", "-", "–"):
+            return None
+        try:
+            return float(t)
+        except ValueError:
+            return None
+
+    def sub_num_suffix(m: re.Match[str]) -> str:
+        n = norm_num(m.group(1))
+        if n is None:
+            return m.group(0)
+        return _format_mxn_value(n)
+
+    out = re.sub(
+        r"\b([\d]{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
+        r"(?:pesos?(?:\s+mexicanos)?|MXN)\b",
+        sub_num_suffix,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    def sub_mxn_leading(m: re.Match[str]) -> str:
+        n = norm_num(m.group(1))
+        if n is None:
+            return m.group(0)
+        return _format_mxn_value(n)
+
+    out = re.sub(
+        r"\b(?:MXN|mxn)\s*:?\s*\$?\s*([\d]{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\b",
+        sub_mxn_leading,
+        out,
+        flags=re.IGNORECASE,
+    )
+
+    def sub_dollar(m: re.Match[str]) -> str:
+        n = norm_num(m.group(1))
+        if n is None:
+            return m.group(0)
+        return _format_mxn_value(n)
+
+    # No volver a procesar $ si ya va tras "MXN " (evita "MXN " + sustitución -> "MXN MXN $…").
+    out = re.sub(
+        r"(?<![Mm][Xx][Nn] )(?<![\w/])\$\s*([\d]{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\b",
+        sub_dollar,
+        out,
+    )
+    # Por si el modelo o pasos previos dejaron "MXN" repetido antes del símbolo $.
+    out = re.sub(
+        r"(?:\bMXN\s+)+(?=\$)",
+        "MXN ",
+        out,
+        flags=re.IGNORECASE,
+    )
+    return out
 
 
 def _format_time_value(days_value: Any) -> str:
@@ -468,7 +592,7 @@ def _format_time_value(days_value: Any) -> str:
 def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
     formatted = df.copy()
     for column in formatted.columns:
-        if str(column).lower() in MXN_COLUMNS:
+        if _column_is_mxn_formatted(column):
             numeric_series = pd.to_numeric(formatted[column], errors="coerce")
             formatted[column] = [
                 _format_mxn_value(val) if pd.notna(num) else val
@@ -556,7 +680,8 @@ def _llm_answer_summary(
     user_msg = (
         f"Pregunta del usuario:\n{question.strip()}\n\n"
         f"Total de filas devueltas por la consulta: {total}\n"
-        f"Muestra en JSON (hasta {cap} filas):\n{payload}"
+        f"Muestra en JSON (hasta {cap} filas):\n{payload}\n\n"
+        "Redacta la explicación solo en español, sin mezclar otros idiomas."
     )
     return llm.generate_natural_language(
         system_prompt=NL_SUMMARY_SYSTEM_PROMPT,
@@ -705,7 +830,7 @@ def _render_chart_options(rows: list[dict[str, Any]], *, widget_key_prefix: str 
         if numeric_series.empty:
             st.info("La consulta devolvió un valor nulo (NULL).")
         elif len(numeric_series) == 1:
-            if value_col_lower in MXN_COLUMNS:
+            if _column_is_mxn_formatted(value_col):
                 metric_value = _format_mxn_value(numeric_series.iloc[0])
             elif value_col_lower in TIME_IN_DAYS_COLUMNS:
                 metric_value = _format_time_value(numeric_series.iloc[0])
@@ -828,13 +953,15 @@ def _format_conversation_transcript(
             lines.append(f"Error al ejecutar: {t['error']}")
             continue
         if t.get("kind") == "chitchat":
-            lines.append(f"Asistente: {t.get('answer_summary', '')}")
+            lines.append(
+                f"Asistente: {_format_money_in_chat_text(t.get('answer_summary', '') or '')}"
+            )
             continue
         if t.get("kind") == "forecast":
             lines.append("Asistente: pronóstico de ventas (cálculo en Python).")
             fs = (t.get("answer_summary") or "").strip()
             if fs:
-                lines.append(f"Resumen al usuario: {fs}")
+                lines.append(f"Resumen al usuario: {_format_money_in_chat_text(fs)}")
             sql = t.get("sql") or ""
             lines.append(f"SQL fuente histórico: {sql[:800]}" + ("..." if len(sql) > 800 else ""))
             lines.append(f"Filas de salida del pronóstico: {t.get('rows', 0)}")
@@ -842,10 +969,10 @@ def _format_conversation_transcript(
         sql = t.get("sql") or ""
         lines.append(f"SQL ejecutado: {sql[:1200]}" + ("..." if len(sql) > 1200 else ""))
         if t.get("kpi"):
-            lines.append(f"KPI determinístico: {t['kpi']}")
+            lines.append(f"KPI determinístico: {_format_money_in_chat_text(str(t['kpi']))}")
         summary_u = (t.get("answer_summary") or "").strip()
         if summary_u:
-            lines.append(f"Resumen entregado al usuario: {summary_u}")
+            lines.append(f"Resumen entregado al usuario: {_format_money_in_chat_text(summary_u)}")
         lines.append(f"Filas devueltas: {t.get('rows', 0)}")
     if vehicle_focus:
         vf_bits: list[str] = []
@@ -945,11 +1072,11 @@ def _render_natural_chat_block() -> tuple[str, bool]:
             if turn.get("error"):
                 st.error(turn["error"])
             elif turn.get("kind") == "chitchat":
-                st.markdown(turn.get("answer_summary") or "¡Hola!")
+                st.markdown(_format_money_in_chat_text(turn.get("answer_summary") or "¡Hola!"))
             elif turn.get("kind") == "forecast":
                 fc_reply = (turn.get("answer_summary") or "").strip()
                 if fc_reply:
-                    st.markdown(fc_reply)
+                    st.markdown(_format_money_in_chat_text(fc_reply))
                 else:
                     st.markdown("**Pronóstico de ventas** (serie histórica + estimación).")
                 if _is_developer_ui() and turn.get("sql"):
@@ -965,7 +1092,7 @@ def _render_natural_chat_block() -> tuple[str, bool]:
                         "\u200b",
                         icon=":material/table_view:",
                         help="Gráfica o detalle en ventana emergente",
-                        use_container_width=True,
+                        use_container_width=False,
                     ):
                         if st.button(
                             "Gráfica",
@@ -982,9 +1109,9 @@ def _render_natural_chat_block() -> tuple[str, bool]:
                             st.session_state[CHAT_DATA_DIALOG_REQUEST_KEY] = "detail"
                             st.rerun()
                     if reply:
-                        st.markdown(reply)
+                        st.markdown(_format_money_in_chat_text(reply))
                 elif reply:
-                    st.markdown(reply)
+                    st.markdown(_format_money_in_chat_text(reply))
                 if _is_developer_ui():
                     st.code(turn.get("sql") or "", language="sql")
                 if not reply:
@@ -1003,9 +1130,14 @@ def _render_natural_chat_block() -> tuple[str, bool]:
             _open_chat_detail_dialog(_dlg_rows)
 
     pending = st.session_state.pop(SESSION_KEY_PENDING_CHAT, None)
-    chat_raw = st.chat_input("Pregunta en lenguaje natural sobre tus datos…")
+    chat_raw = st.chat_input("Escribe tu pregunta…")
     effective = (pending or chat_raw or "").strip()
-    return effective, bool(effective)
+    should_run = bool(effective)
+    # Muestra el mensaje del usuario en el mismo ciclo (antes de la respuesta / spinner en main).
+    if should_run:
+        with st.chat_message("user"):
+            st.markdown(effective)
+    return effective, should_run
 
 
 SESSION_KEY_FOCUS_VEHICLE = "focus_vehicle"
@@ -1529,7 +1661,7 @@ def _render_query_result(
             st.session_state[SESSION_KEY_SHOW_QUERY_EXTRA_PANELS] = not panels_open
             st.rerun()
 
-    st.markdown(summary_text)
+    st.markdown(_format_money_in_chat_text(summary_text))
 
     if _is_developer_ui():
         with st.expander("SQL generado", expanded=False):
@@ -1631,7 +1763,7 @@ def _render_observability_panel(cache_stats: dict[str, Any] | None = None) -> No
         col4.metric("Latencia p95", f"{float(metrics.get('p95_latency_ms', 0.0)):.1f} ms")
 
         if cache_stats:
-            st.markdown("**Cache SQL**")
+            st.markdown("**Caché SQL**")
             cache_col1, cache_col2, cache_col3 = st.columns(3)
             cache_col1.metric("Entradas", int(cache_stats.get("entries", 0)))
             cache_col2.metric("Hits", int(cache_stats.get("hits", 0)))
@@ -1922,14 +2054,8 @@ def main() -> None:
     _hide_streamlit_header_chrome = ""
     if not _is_developer_ui():
         _hide_streamlit_header_chrome = """
-        /* Deploy y menú ⋮ del header: solo visibles en modo desarrollo */
-        [data-testid="stToolbar"] {
-            visibility: hidden !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-            pointer-events: none !important;
-        }
+        /* Deploy / decoración: ocultos en modo demo. No ocultar [data-testid="stToolbar"]
+           entero: ahí va el botón para expandir el panel lateral en Streamlit reciente. */
         [data-testid="stDecoration"] { display: none !important; }
         .stAppDeployButton { display: none !important; }
         [data-testid="stDeployButton"] { display: none !important; }
@@ -1974,6 +2100,107 @@ def main() -> None:
         [data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"]))
             [data-testid="stChatMessageContent"] {{
             text-align: left;
+        }}
+        /* Sin panel/burbuja: mensajes sobre el fondo de la app */
+        [data-testid="stChatMessage"] {{
+            background: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+        }}
+        [data-testid="stChatMessageContent"],
+        [data-testid="stChatMessageContent"] > div {{
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }}
+        /* Avatares del chat: sin marco de color (solo icono), misma caja que el popover */
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"],
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] {{
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 2.25rem !important;
+            height: 2.25rem !important;
+            min-width: 2.25rem !important;
+            min-height: 2.25rem !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] img,
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] svg,
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] img,
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] svg {{
+            width: 1.5rem !important;
+            height: 1.5rem !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] > div,
+        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] > div {{
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }}
+        /* Popover «detalle» en chat: solo icono, misma huella que el avatar */
+        [data-testid="stChatMessage"] [data-testid="stPopover"] > button {{
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: inherit !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            min-height: 2.25rem !important;
+            width: 2.25rem !important;
+            height: 2.25rem !important;
+            min-width: 2.25rem !important;
+            max-width: 2.25rem !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] > button:hover {{
+            background: rgba(255, 255, 255, 0.08) !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] > button:focus-visible {{
+            outline: 2px solid rgba(96, 165, 250, 0.85);
+            outline-offset: 2px;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] > button svg {{
+            width: 1.5rem !important;
+            height: 1.5rem !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] > button [data-testid="stMarkdownContainer"] {{
+            display: none !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] button svg:last-of-type {{
+            display: none !important;
+        }}
+        [data-testid="stChatMessage"] [data-testid="stPopover"] [data-testid="stIconKeyboardArrowDown"],
+        [data-testid="stChatMessage"] [data-testid="stPopover"] [data-testid="stChevronDownIcon"] {{
+            display: none !important;
+        }}
+        /* Menos hueco superior: título y contenido más arriba */
+        header[data-testid="stHeader"] {{
+            height: auto !important;
+            min-height: 0 !important;
+            padding-top: 0.35rem !important;
+            padding-bottom: 0.35rem !important;
+        }}
+        [data-testid="stAppViewContainer"] .main .block-container,
+        [data-testid="stMain"] .block-container,
+        section.main .block-container,
+        div.block-container {{
+            padding-top: 0.5rem !important;
+        }}
+        [data-testid="stMain"] h1,
+        .main h1 {{
+            margin-top: 0 !important;
+            margin-bottom: 0.35rem !important;
         }}
         {_hide_streamlit_header_chrome}
         </style>
@@ -2128,7 +2355,9 @@ def main() -> None:
 
     forecast_intent = is_forecast_intent(effective_question.strip())
     if should_run and forecast_intent:
-        st.info("Se detectó intención de pronóstico; se usará el módulo de forecast en Python.")
+        st.info(
+            "Se detectó intención de pronóstico de ventas; se calculará con el módulo de pronóstico en Python."
+        )
 
     if should_run and forecast_intent:
         with st.spinner("Calculando pronóstico de ventas..."):
