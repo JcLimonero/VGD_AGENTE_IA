@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import os
 import statistics
 import time
 
-from agente_dwh.demo_data import DEMO_DB_PATH, ensure_demo_db
+from agente_dwh.demo_data import ensure_demo_postgres
 from agente_dwh.dwh import DwhClient
 
 
@@ -15,8 +16,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--requests", type=int, default=240, help="Total de consultas a ejecutar.")
     parser.add_argument(
         "--dwh-url",
-        default=f"sqlite+pysqlite:///{DEMO_DB_PATH}",
-        help="URL SQLAlchemy del DWH objetivo.",
+        default="",
+        help="URL SQLAlchemy del DWH (por defecto DWH_URL del entorno).",
     )
     parser.add_argument(
         "--sql",
@@ -46,14 +47,17 @@ def main() -> None:
     if args.requests <= 0:
         raise SystemExit("--requests debe ser > 0")
 
-    ensure_demo_db(str(DEMO_DB_PATH))
+    dwh_url = (args.dwh_url or os.getenv("DWH_URL", "")).strip()
+    if not dwh_url:
+        raise SystemExit("Indica --dwh-url o define DWH_URL (postgresql+psycopg://...).")
+    ensure_demo_postgres(dwh_url)
     start = time.perf_counter()
     latencies: list[float] = []
     ok = 0
     fail = 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(_run_once, args.dwh_url, args.sql) for _ in range(args.requests)]
+        futures = [executor.submit(_run_once, dwh_url, args.sql) for _ in range(args.requests)]
         for future in concurrent.futures.as_completed(futures):
             success, latency = future.result()
             latencies.append(latency)

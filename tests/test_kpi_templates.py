@@ -2,27 +2,27 @@ from __future__ import annotations
 
 import unittest
 
-from agente_dwh.kpi_templates import match_kpi_template
+from agente_dwh.kpi_templates import DeterministicQuery, match_kpi_template
 
 
 class TestKpiTemplates(unittest.TestCase):
-    def test_match_repurchase_template(self) -> None:
-        result = match_kpi_template("¿Cuál es el tiempo promedio de recompra de mis clientes?")
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertEqual(result.name, "avg_repurchase_time")
-        self.assertIn("sale_gaps", result.sql)
+    """Plantillas KPI desactivadas hasta nueva definición."""
 
-    def test_match_insurance_template(self) -> None:
-        result = match_kpi_template("¿A qué clientes les puedo ofrecer un seguro hoy?")
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertEqual(result.name, "insurance_opportunities")
-        self.assertIn("insurance_policies", result.sql)
+    def test_match_always_none(self) -> None:
+        samples = [
+            "¿Cuál es el tiempo promedio de recompra de mis clientes?",
+            "¿A qué clientes les puedo ofrecer un seguro hoy?",
+            "Top 10 clientes por ventas",
+            "¿Cuál es la tasa de no show semanal de los últimos 3 meses?",
+            "¿Cuál es la conversión de citas programadas a completadas por taller?",
+            "",
+        ]
+        for q in samples:
+            self.assertIsNone(match_kpi_template(q), msg=repr(q))
 
-    def test_no_match_for_generic_question(self) -> None:
-        result = match_kpi_template("Top 10 clientes por ventas")
-        self.assertIsNone(result)
+    def test_deterministic_query_dataclass(self) -> None:
+        q = DeterministicQuery(name="x", sql="SELECT 1", explanation="test")
+        self.assertEqual(q.name, "x")
 
 
 if __name__ == "__main__":

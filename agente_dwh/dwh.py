@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from .observability import record_query_event
+from .sql_guard import validate_read_only_sql
 
 
 @dataclass
@@ -52,8 +53,10 @@ class DwhClient:
 
     def execute_select(self, sql: str) -> list[dict[str, Any]]:
         """Ejecuta una consulta de solo lectura y devuelve filas en formato dict."""
+        stripped = sql.strip()
+        validate_read_only_sql(stripped)
         start = time.perf_counter()
-        normalized_sql = self._normalize_sql_for_dialect(sql.strip())
+        normalized_sql = self._normalize_sql_for_dialect(stripped)
         sql_with_limit = self._inject_limit_if_missing(normalized_sql)
         cached_rows = self._get_cached_rows(sql_with_limit)
         if cached_rows is not None:
@@ -144,9 +147,14 @@ class DwhClient:
             .replace("≥", ">=")
             .replace("≠", "!=")
         )
+        normalized = self._rewrite_service_appointments_aliases(normalized)
+        normalized = self._rewrite_sales_status_aliases(normalized)
+        normalized = self._rewrite_insurance_policies_policy_status(normalized)
 
         if self.dialect_name == "sqlite":
             normalized = self._normalize_sqlite_sql(normalized)
+        elif self.dialect_name == "postgresql":
+            normalized = self._rewrite_postgresql_round_two_arg(normalized)
 
         return normalized
 
@@ -170,8 +178,7 @@ class DwhClient:
         )
         normalized = self._rewrite_interval_arithmetic(normalized)
         normalized = self._rewrite_window_avg_misuse(normalized)
-        normalized = self._rewrite_service_appointments_aliases(normalized)
-        return self._rewrite_sales_status_aliases(normalized)
+        return normalized
 
     def _rewrite_interval_arithmetic(self, sql: str) -> str:
         """Convierte aritmética de intervalos estilo PostgreSQL a SQLite."""
@@ -242,7 +249,7 @@ class DwhClient:
         return rewritten.strip()
 
     def _rewrite_sales_status_aliases(self, sql: str) -> str:
-        """Mapea alias de estados comunes al catálogo real de la demo SQLite."""
+        """Mapea alias de estados comunes al catálogo real de la demo."""
         # En la demo usamos estados: cerrada, facturada, entregada.
         # El LLM a veces usa 'completed'; aquí lo ampliamos a todos los estados
         # equivalentes para no perder filas en consultas de recompra.
@@ -257,9 +264,10 @@ class DwhClient:
         Corrige SQL generado para agenda de servicio con aliases comunes.
 
         En service_appointments las columnas reales son appointment_status y
-        appointment_date. El LLM puede generar `status`, `scheduled_date` o
-        `appointment_time` por consistencia con otros esquemas. También mapea
-        `advisor` a `workshop` en este dataset demo.
+        appointment_date.         El LLM puede generar `status`, `scheduled_date`, `service_date` o
+        `appointment_time` por consistencia con otros esquemas (p. ej. la tabla
+        `services` sí tiene service_date; en citas la columna es appointment_date).
+        También mapea `advisor` a `workshop` en este dataset demo.
         """
         lowered = sql.lower()
         if "service_appointments" not in lowered:
@@ -285,6 +293,7 @@ class DwhClient:
 
         normalized = _replace_prefixed("status", "appointment_status", sql)
         normalized = _replace_prefixed("scheduled_date", "appointment_date", normalized)
+        normalized = _replace_prefixed("service_date", "appointment_date", normalized)
         normalized = _replace_prefixed("appointment_time", "appointment_date", normalized)
         normalized = _replace_prefixed("advisor", "workshop", normalized)
 
@@ -293,11 +302,161 @@ class DwhClient:
             normalized,
         )
         if not has_other_status_tables:
-            # Solo reemplaza status/scheduled_date sin prefijo (no toca s.status).
             normalized = re.sub(r"(?i)(?<!\.)\bstatus\b", "appointment_status", normalized)
             normalized = re.sub(r"(?i)(?<!\.)\bscheduled_date\b", "appointment_date", normalized)
+            normalized = re.sub(r"(?i)(?<!\.)\bservice_date\b", "appointment_date", normalized)
             normalized = re.sub(r"(?i)(?<!\.)\bappointment_time\b", "appointment_date", normalized)
             normalized = re.sub(r"(?i)(?<!\.)\badvisor\b", "workshop", normalized)
 
         return normalized
+
+    def _rewrite_insurance_policies_policy_status(self, sql: str) -> str:
+        """
+        El LLM suele usar estados en inglés o inventados; en la demo son activa, vencida, cancelada.
+        Solo aplica cuando la consulta menciona insurance_policies.
+        """
+        if "insurance_policies" not in sql.lower():
+            return sql
+        out = sql
+        out = re.sub(
+            r"(?i)(\bpolicy_status\s+IN\s*\(\s*)'active'\s*,\s*'vence_pronto'\s*(\))",
+            r"\1'activa'\2",
+            out,
+        )
+        out = re.sub(
+            r"(?i)(\bpolicy_status\s+IN\s*\(\s*)'vence_pronto'\s*,\s*'active'\s*(\))",
+            r"\1'activa'\2",
+            out,
+        )
+        out = re.sub(r"(?i)(\bpolicy_status\s*=\s*)'active'", r"\1'activa'", out)
+        out = re.sub(r"(?i)(\bpolicy_status\s*=\s*)'vence_pronto'", r"\1'activa'", out)
+        out = re.sub(
+            r"(?i)(\binsurance_policies\s*\.\s*policy_status\s*=\s*)'active'",
+            r"\1'activa'",
+            out,
+        )
+        out = re.sub(
+            r"(?i)(\binsurance_policies\s*\.\s*policy_status\s*=\s*)'vence_pronto'",
+            r"\1'activa'",
+            out,
+        )
+        alias_matches = re.findall(
+            r"(?i)\b(?:from|join)\s+insurance_policies(?:\s+as)?\s+([A-Za-z_][A-Za-z0-9_]*)",
+            out,
+        )
+        for alias in alias_matches:
+            out = re.sub(
+                rf"(?i)(\b{re.escape(alias)}\s*\.\s*policy_status\s*=\s*)'active'",
+                r"\1'activa'",
+                out,
+            )
+            out = re.sub(
+                rf"(?i)(\b{re.escape(alias)}\s*\.\s*policy_status\s*=\s*)'vence_pronto'",
+                r"\1'activa'",
+                out,
+            )
+        return out
+
+    @staticmethod
+    def _parse_round_call_args(sql: str, open_paren_idx: int) -> tuple[str, str | None, int] | None:
+        """
+        A partir del '(' de ROUND(, devuelve (primer_arg, segundo_arg_o_None, indice_despues_del_cierre).
+        Respeta paréntesis anidados y literales entre comillas simples.
+        """
+        if open_paren_idx >= len(sql) or sql[open_paren_idx] != "(":
+            return None
+
+        depth = 1
+        i = open_paren_idx + 1
+        first_start = i
+        in_string = False
+
+        while i < len(sql) and depth >= 1:
+            c = sql[i]
+            if in_string:
+                if c == "\\" and i + 1 < len(sql):
+                    i += 2
+                    continue
+                if c == "'":
+                    if i + 1 < len(sql) and sql[i + 1] == "'":
+                        i += 2
+                        continue
+                    in_string = False
+                i += 1
+                continue
+            if c == "'":
+                in_string = True
+                i += 1
+                continue
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return (sql[first_start:i].strip(), None, i + 1)
+            elif c == "," and depth == 1:
+                first = sql[first_start:i].strip()
+                i += 1
+                sec_start = i
+                depth = 1
+                in_string = False
+                while i < len(sql):
+                    c = sql[i]
+                    if in_string:
+                        if c == "\\" and i + 1 < len(sql):
+                            i += 2
+                            continue
+                        if c == "'":
+                            if i + 1 < len(sql) and sql[i + 1] == "'":
+                                i += 2
+                                continue
+                            in_string = False
+                        i += 1
+                        continue
+                    if c == "'":
+                        in_string = True
+                        i += 1
+                        continue
+                    if c == "(":
+                        depth += 1
+                    elif c == ")":
+                        depth -= 1
+                        if depth == 0:
+                            second = sql[sec_start:i].strip()
+                            return (first, second, i + 1)
+                    i += 1
+                return None
+            i += 1
+        return None
+
+    def _rewrite_postgresql_round_two_arg(self, sql: str) -> str:
+        """
+        PostgreSQL no implementa ROUND(double precision, int); usar ROUND((x)::numeric, n).
+        """
+        round_re = re.compile(r"\bROUND\s*\(", re.IGNORECASE)
+        out: list[str] = []
+        pos = 0
+        for m in round_re.finditer(sql):
+            open_idx = m.end() - 1
+            parsed = self._parse_round_call_args(sql, open_idx)
+            if parsed is None:
+                continue
+            first, second, end = parsed
+            if second is None:
+                continue
+            second_clean = second.strip()
+            if not re.fullmatch(r"-?\d+", second_clean):
+                continue
+            fl = first.lower()
+            if "::numeric" in fl or "::decimal" in fl:
+                out.append(sql[pos : m.start()])
+                out.append(sql[m.start() : end])
+                pos = end
+                continue
+            out.append(sql[pos : m.start()])
+            out.append(sql[m.start() : open_idx + 1])
+            out.append(f"({first})::numeric, {second_clean})")
+            pos = end
+        out.append(sql[pos:])
+        return "".join(out)
 

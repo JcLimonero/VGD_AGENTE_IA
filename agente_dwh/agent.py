@@ -4,14 +4,29 @@ from dataclasses import dataclass
 from typing import Any
 
 from .dwh import DwhClient
-from .kpi_templates import DeterministicQuery, match_kpi_template
 from .llm_local import OllamaClient
 from .observability import StopWatch, record_query_event
 from .sql_guard import clean_sql_output, validate_read_only_sql
+from .sql_vehicle_context import apply_vehicle_focus_sql_rewrites
 
 
 SYSTEM_PROMPT = """Eres un asistente experto en SQL para analytics.
 Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
+
+Ejemplos de estilo (PostgreSQL; adapta tablas/columnas al esquema dado):
+- Pregunta: "¿Cuántos clientes hay por estado?"
+  SELECT state, COUNT(*) AS n FROM customers GROUP BY state ORDER BY n DESC;
+- Pregunta: "Ventas totales por canal"
+  SELECT channel, SUM(amount)::numeric AS total
+  FROM sales
+  WHERE status IN ('cerrada', 'facturada', 'entregada', 'completed')
+  GROUP BY channel;
+- Pregunta: "Citas completadas por taller"
+  SELECT workshop, COUNT(*) AS n
+  FROM service_appointments
+  WHERE appointment_status = 'completada'
+  GROUP BY workshop
+  ORDER BY n DESC;
 
 Reglas obligatorias:
 1) Solo una consulta SQL.
@@ -21,6 +36,27 @@ Reglas obligatorias:
 5) Limita resultados a un máximo de 1000 filas cuando aplique.
 6) Si la pregunta no se puede resolver con SQL, devuelve: SELECT 'No se puede resolver con SQL' AS mensaje;
 7) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
+8) Si la pregunta pide datos de vehículos o cada fila identifica un vehículo (tabla vehicles, vehicle_id,
+   ventas/servicios/citas/pólizas por unidad), incluye SIEMPRE la columna vin: haz JOIN a vehicles si no está
+   y expón vehicles.vin (o alias v.vin). No aplica a agregados puramente globales sin desglose por unidad.
+9) Si el contexto o el esquema indican un identificador de agencia (idAgency, agency_id, etc.), úsalo para
+   filtrar o unir la tabla de clientes u otras entidades que lleven ese campo.
+10) Si preguntan si una unidad o VIN concreto tiene seguro o póliza, consulta insurance_policies unido a
+    vehicles (por vehicle_id o vin); no mezcles con listados de oportunidades comerciales salvo que lo pidan explícito.
+    En el dataset demo, policy_status usa valores en español: activa, vencida, cancelada (no uses 'active' ni
+    inventes estados como 'vence_pronto' salvo que el esquema los liste explícitamente).
+11) Si hay historial de conversación, úsalo para entender referencias como «esa unidad», «el mismo cliente»,
+    «lo anterior», «y el dueño?», etc., sin repetir identificadores que ya aparecieron en turnos previos.
+12) Si el prompt o el historial fija vehicle_id o vin para seguimiento («esta unidad»), filtra SOLO esa fila con
+    literales (vehicles.id o vehicles.vin). Nunca sustituyas eso por subconsultas como
+    (SELECT vin FROM services ORDER BY service_date DESC LIMIT 1).
+    No escribas cadenas ficticias como 'ultimo_vin', 'last_vin' ni 'esta_unidad' como valor de VIN: usa el
+    VIN o id numérico exactos del contexto.
+13) DIFERENCIA CLAVE entre services y service_appointments:
+    - services: servicios ya realizados. Tiene cost, service_date, status y notes.
+    - service_appointments: agenda de citas. Tiene appointment_date, appointment_status, cancellation_reason, attended. NO tiene cost, notes ni service_date.
+    - Para costos o montos de servicio usa siempre services.cost, NUNCA service_appointments.cost (no existe).
+    - Para la fecha de un servicio realizado usa services.service_date; para la fecha de una cita usa service_appointments.appointment_date.
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -32,6 +68,15 @@ Reglas obligatorias:
 3) Usa únicamente SQL de lectura (SELECT/CTE), sin operaciones de escritura.
 4) Corrige alias, columnas o joins inválidos según el error reportado.
 5) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
+6) Si la consulta trata vehículos o filas con vehicle_id, asegura que el SELECT incluya vin (desde vehicles).
+7) services y service_appointments son tablas DIFERENTES:
+   - services tiene cost, service_date, status, notes.
+   - service_appointments tiene appointment_date, appointment_status, cancellation_reason, attended. NO tiene cost, notes ni service_date.
+   Si el error dice que una columna no existe en service_appointments, probablemente debes usar la tabla services en su lugar.
+8) insurance_policies.policy_status en la demo usa: activa, vencida, cancelada. Corrige 'active', 'inactive', etc.
+9) Si el contexto fija un VIN o vehicle_id, no lo reemplaces por subconsultas sobre services u otras tablas.
+10) Si el SQL usó un literal ficticio de VIN ('ultimo_vin', 'last_vin', etc.) y el contexto trae el VIN real,
+    sustituye por el valor correcto entre comillas simples (escapando apóstrofos si los hay).
 """
 
 
@@ -55,19 +100,6 @@ class DwhAgent:
         self._llm = llm_client
         self._schema_hint = schema_hint.strip()
 
-    def _try_deterministic_kpi(self, question: str) -> QueryResult | None:
-        matched: DeterministicQuery | None = match_kpi_template(question)
-        if not matched:
-            return None
-        rows = self._dwh.execute_select(matched.sql)
-        return QueryResult(
-            question=question,
-            generated_sql=matched.sql,
-            rows=rows,
-            deterministic_kpi=matched.name,
-            deterministic_explanation=matched.explanation,
-        )
-
     def _dialect_guidance(self) -> str:
         dialect = self._dwh.dialect_name
         if dialect == "sqlite":
@@ -85,6 +117,8 @@ class DwhAgent:
                 "Reglas de dialecto PostgreSQL:\n"
                 "- Para fechas usa intervalos (por ejemplo: fecha + INTERVAL '1 month').\n"
                 "- Evita funciones exclusivas de SQL Server como DATEADD.\n"
+                "- Para redondear decimales usa ROUND((expresion)::numeric, n); "
+                "no uses ROUND(expresion_float, n) sobre double precision/real sin cast.\n"
             )
         if dialect:
             return f"Motor SQL objetivo: {dialect}.\nRespeta estrictamente este dialecto.\n"
@@ -113,28 +147,42 @@ class DwhAgent:
     def get_cache_stats(self) -> dict[str, Any]:
         return self._dwh.get_cache_stats()
 
-    def answer(self, question: str) -> QueryResult:
+    def answer(
+        self,
+        question: str,
+        *,
+        prompt_extra: str = "",
+        conversation_transcript: str = "",
+        vehicle_focus: dict[str, Any] | None = None,
+    ) -> QueryResult:
+        """
+        Resuelve la pregunta. `question` es el texto que se guarda en el resultado (UI/JSON).
+        `prompt_extra` (opcional) se antepone al prompt del LLM.
+        `conversation_transcript` (opcional) resume turnos previos para seguimiento conversacional.
+        `vehicle_focus` (opcional) vin / vehicle_id / placa para sustituir literales placeholder en el SQL.
+        """
         stopwatch = StopWatch()
+        display_question = question.strip()
+        extra = (prompt_extra or "").strip()
+        transcript = (conversation_transcript or "").strip()
+        parts: list[str] = []
+        if transcript:
+            parts.append(transcript)
+        if extra:
+            parts.append(extra)
+        parts.append(display_question)
+        llm_question = "\n\n".join(parts)
         try:
-            deterministic_result = self._try_deterministic_kpi(question)
-            if deterministic_result is not None:
-                record_query_event(
-                    source="agent",
-                    success=True,
-                    duration_ms=stopwatch.elapsed_ms(),
-                    row_count=len(deterministic_result.rows),
-                    cached=False,
-                    message=f"kpi_deterministico:{deterministic_result.deterministic_kpi}",
-                )
-                return deterministic_result
-
-            prompt = self._build_user_prompt(question)
+            prompt = self._build_user_prompt(llm_question)
             raw_output = self._llm.generar_sql(prompt=prompt, system_prompt=SYSTEM_PROMPT)
-            generated_sql = clean_sql_output(raw_output)
+            generated_sql = apply_vehicle_focus_sql_rewrites(
+                clean_sql_output(raw_output),
+                vehicle_focus,
+            )
             validate_read_only_sql(generated_sql)
             try:
                 rows = self._dwh.execute_select(generated_sql)
-                result = QueryResult(question=question, generated_sql=generated_sql, rows=rows)
+                result = QueryResult(question=display_question, generated_sql=generated_sql, rows=rows)
                 record_query_event(
                     source="agent",
                     success=True,
@@ -147,15 +195,18 @@ class DwhAgent:
             except RuntimeError as first_exc:
                 # Reintento único: pedir al LLM una corrección basada en el error SQL.
                 fix_prompt = self._build_fix_prompt(
-                    question=question,
+                    question=llm_question,
                     previous_sql=generated_sql,
                     execution_error=str(first_exc),
                 )
                 fixed_raw = self._llm.generar_sql(prompt=fix_prompt, system_prompt=SQL_FIX_PROMPT)
-                fixed_sql = clean_sql_output(fixed_raw)
+                fixed_sql = apply_vehicle_focus_sql_rewrites(
+                    clean_sql_output(fixed_raw),
+                    vehicle_focus,
+                )
                 validate_read_only_sql(fixed_sql)
                 rows = self._dwh.execute_select(fixed_sql)
-                result = QueryResult(question=question, generated_sql=fixed_sql, rows=rows)
+                result = QueryResult(question=display_question, generated_sql=fixed_sql, rows=rows)
                 record_query_event(
                     source="agent",
                     success=True,

@@ -7,11 +7,24 @@ name = "vgd-agente-ia"
 version = "0.1.0"
 description = "Agente IA para consultar un DWH con un LLM local"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
   "openpyxl",
+  "python-dotenv>=1.0",
   "SQLAlchemy",
+  # NumPy 2.4+ requiere Python >=3.11; en 3.9 usar ruedas <2.3.
+  "numpy>=1.23,<2.3",
+  "pandas>=2.0",
   "streamlit",
+]
+
+[project.optional-dependencies]
+postgres = [
+  "psycopg[binary]>=3.1",
+]
+dev = [
+  "pytest>=7.0",
+  "watchdog>=3.0",
 ]
 
 [project.scripts]

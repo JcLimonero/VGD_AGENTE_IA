@@ -19,6 +19,7 @@ class Config:
     llm_model: str
     max_rows: int
     llm_timeout_seconds: int
+    llm_temperature: float = 0.2
     cache_ttl_seconds: int = 120
     cache_max_entries: int = 500
     schema_hint_file: str = ""
@@ -33,8 +34,9 @@ class Config:
             )
 
         llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434").strip()
-        llm_model = os.getenv("LLM_MODEL", "qwen2.5:7b").strip()
+        llm_model = os.getenv("LLM_MODEL", "qwen2.5-coder:7b").strip()
         max_rows_raw = os.getenv("MAX_ROWS", "200").strip()
+        llm_temp_raw = os.getenv("LLM_TEMPERATURE", "0.2").strip()
         timeout_raw = os.getenv("LLM_TIMEOUT_SECONDS", "180").strip()
         cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "120").strip()
         cache_max_entries_raw = os.getenv("CACHE_MAX_ENTRIES", "500").strip()
@@ -53,6 +55,13 @@ class Config:
             raise ConfigError("LLM_TIMEOUT_SECONDS debe ser un entero valido.") from exc
         if llm_timeout_seconds <= 0:
             raise ConfigError("LLM_TIMEOUT_SECONDS debe ser mayor que 0.")
+
+        try:
+            llm_temperature = float(llm_temp_raw)
+        except ValueError as exc:
+            raise ConfigError("LLM_TEMPERATURE debe ser un número decimal válido.") from exc
+        if not 0.0 <= llm_temperature <= 2.0:
+            raise ConfigError("LLM_TEMPERATURE debe estar entre 0.0 y 2.0.")
 
         try:
             cache_ttl_seconds = int(cache_ttl_raw)
@@ -74,6 +83,7 @@ class Config:
             llm_model=llm_model,
             max_rows=max_rows,
             llm_timeout_seconds=llm_timeout_seconds,
+            llm_temperature=llm_temperature,
             cache_ttl_seconds=cache_ttl_seconds,
             cache_max_entries=cache_max_entries,
             schema_hint_file=schema_hint_file,

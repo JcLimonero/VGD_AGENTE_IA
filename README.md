@@ -22,21 +22,33 @@ Permitir que un usuario haga preguntas en lenguaje natural y que el sistema:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -U pip setuptools wheel
+pip install -e ".[postgres,dev]"
+cp .env.example .env
+# Edita .env (DWH_URL, credenciales PostgreSQL, LLM_MODEL si aplica)
 ```
 
-Si tu DWH es PostgreSQL, instala también un driver:
+Modelo Ollama recomendado para generar SQL (mismo orden de tamaño que un 7B general):
 
 ```bash
-pip install psycopg[binary]
+ollama pull qwen2.5-coder:7b
 ```
+
+Comprueba Ollama, PostgreSQL, dataset demo y un ciclo con el LLM:
+
+```bash
+python scripts/validate_setup.py
+```
+
+La app carga automáticamente el archivo `.env` en la raíz del repo (vía `python-dotenv`).
 
 ## Variables de entorno
 
 ```bash
 export DWH_URL='postgresql+psycopg://usuario:password@host:5432/base'
 export LLM_ENDPOINT='http://127.0.0.1:11434'
-export LLM_MODEL='llama3.1'
+export LLM_MODEL='qwen2.5-coder:7b'
+export LLM_TEMPERATURE='0.2'
 export MAX_ROWS='200'
 export LLM_TIMEOUT_SECONDS='60'
 export CACHE_TTL_SECONDS='120'
@@ -70,12 +82,7 @@ agente-dwh --json "ventas por región en 2025"
 
 ## Robustez implementada
 
-- **Plantillas determinísticas para KPIs críticos**:
-  - Tiempo promedio de recompra.
-  - Oportunidades de seguro.
-  - Edad promedio de compradores.
-  - Unidad recomendada por edad/género.
-  - Estas consultas se resuelven sin depender del LLM.
+- **Plantillas KPI determinísticas**: desactivadas por ahora (`match_kpi_template` devuelve siempre `None`); todas las preguntas van al LLM. Se pueden volver a definir en `agente_dwh/kpi_templates.py`.
 
 - **Cache SQL en memoria (LRU + TTL)**:
   - Configurable con `CACHE_TTL_SECONDS` y `CACHE_MAX_ENTRIES`.
@@ -98,7 +105,7 @@ agente-dwh --json "ventas por región en 2025"
 - `agente_dwh/dwh.py`: ejecución de SQL en DWH con SQLAlchemy.
 - `agente_dwh/agent.py`: orquestador pregunta -> SQL -> ejecución.
 - `agente_dwh/cli.py`: interfaz de línea de comandos.
-- `agente_dwh/kpi_templates.py`: motor de plantillas determinísticas KPI.
+- `agente_dwh/kpi_templates.py`: stub para futuras plantillas KPI (`DeterministicQuery`, `match_kpi_template`).
 - `agente_dwh/observability.py`: métricas, eventos y alertas operativas.
 
 ## Ejemplo directo con tu base PostgreSQL
@@ -108,7 +115,8 @@ Con los datos compartidos, puedes ejecutar así desde una máquina autorizada po
 ```bash
 export DWH_URL='postgresql+psycopg://postgres:1234@74.208.78.55:5432/vgd_dwh_migration'
 export LLM_ENDPOINT='http://127.0.0.1:11434'
-export LLM_MODEL='llama3.1'
+export LLM_MODEL='qwen2.5-coder:7b'
+export LLM_TEMPERATURE='0.2'
 export MAX_ROWS='200'
 export LLM_TIMEOUT_SECONDS='60'
 export SCHEMA_HINT_FILE='./schema_hint_customers.txt'
@@ -142,44 +150,41 @@ Luego abre en tu navegador:
 http://localhost:8501
 ```
 
+Antes de arrancar, define la URL de PostgreSQL donde vive el dataset demo:
+
+```bash
+export DWH_URL='postgresql+psycopg://usuario:clave@127.0.0.1:5432/tu_bd'
+# o bien DEMO_DWH_URL (misma forma)
+```
+
 En la pantalla:
 
-1. Configura conexión (`DWH_URL`, endpoint/modelo de Ollama, límite).
-2. (Opcional) marca **Usar schema_hint_customers.txt**.
-3. Escribe la pregunta y pulsa **Consultar**.
+1. Al iniciar se crean o actualizan las tablas demo en esa base (si hace falta).
+2. Configura endpoint/modelo de Ollama y límite de filas en la barra lateral si lo necesitas.
+3. (Opcional) `SCHEMA_HINT_FILE` apuntando a `schema_hint_demo.txt`.
+4. Escribe la pregunta y pulsa **Consultar**.
 
 La web muestra:
 - SQL generado
 - resultados en tabla
 - JSON completo de respuesta
 
-## Demo sin PostgreSQL (datos simulados)
+## Dataset demo en PostgreSQL
 
-Para demos, la app web puede usar una base local SQLite generada automaticamente con tablas relacionadas:
+Los datos de prueba se generan en Python y se cargan **solo en PostgreSQL** (ya no se usa SQLite).
 
-- `customers`
-- `vehicles`
-- `sales`
-- `services`
+Tablas: `customers`, `vehicles`, `sales`, `services`, `service_appointments`, `insurance_policies`, y agregados `mv_sales_monthly`, `mv_customer_lifecycle`.
 
-La relacion principal es:
-
-- `customers.id` -> `vehicles.customer_id`
-- `customers.id` -> `sales.customer_id`
-- `customers.id` -> `services.customer_id`
-- `vehicles.id` -> `sales.vehicle_id`
-- `vehicles.id` -> `services.vehicle_id`
-
-Además, la demo crea tablas materializadas para acelerar analítica:
-
-- `mv_sales_monthly`
-- `mv_customer_lifecycle`
-
-En la web se activa por defecto con la variable:
+Para sembrar o recrear el demo en tu base local:
 
 ```bash
-export USE_DEMO_DATA=1
+export DWH_URL='postgresql+psycopg://usuario:clave@127.0.0.1:5432/tu_bd'
+python3 scripts/seed_postgres_demo.py
+# Recrear desde cero aunque exista el esquema:
+python3 scripts/seed_postgres_demo.py --force
 ```
+
+Desde código o tests también puedes usar `agente_dwh.demo_data.ensure_demo_postgres(DWH_URL)`.
 
 Preguntas recomendadas para demo:
 
@@ -190,29 +195,31 @@ Preguntas recomendadas para demo:
 
 ## Pruebas automáticas
 
-Ejecuta pruebas de regresión:
+Algunas pruebas necesitan PostgreSQL accesible. Define por ejemplo:
 
 ```bash
-python3 -m unittest discover -s tests -v
+export DWH_URL='postgresql+psycopg://usuario:clave@127.0.0.1:5432/tu_bd'
+# o export TEST_PG_DSN='...' (misma URL)
+```
+
+Luego:
+
+```bash
+python3 -m pytest tests/ -q
 ```
 
 Cobertura incluida:
 
-- Plantillas KPI determinísticas.
-- Cache SQL (TTL / hit / miss).
+- Stub de plantillas KPI (sin matches activos).
+- Cache SQL (TTL / hit / miss) sobre PostgreSQL.
 - Pronóstico usando tabla materializada `mv_sales_monthly`.
+- Normalización SQL para citas de servicio (PostgreSQL).
 
 ## Prueba de carga (rápida)
 
-Script de carga concurrente sobre la base demo:
+Script de carga concurrente (requiere `DWH_URL` y datos demo cargados):
 
 ```bash
-python3 scripts/load_test.py --threads 6 --iters 40 --ttl 120 --cache-size 500
+export DWH_URL='postgresql+psycopg://usuario:clave@127.0.0.1:5432/tu_bd'
+python3 scripts/load_test.py --workers 12 --requests 240
 ```
-
-Salida esperada:
-
-- QPS aproximado.
-- p50/p95 de latencia.
-- ratio de éxito.
-- estadísticas de cache.

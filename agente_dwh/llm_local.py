@@ -13,10 +13,18 @@ class LLMError(RuntimeError):
 class LocalOllamaClient:
     """Cliente mínimo para la API /api/chat de Ollama."""
 
-    def __init__(self, base_url: str, model_name: str, timeout_seconds: int = 60) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model_name: str,
+        timeout_seconds: int = 60,
+        *,
+        temperature: float = 0.2,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         self._timeout_seconds = timeout_seconds
+        self._temperature = temperature
 
     def generate_sql(self, system_prompt: str, user_prompt: str) -> str:
         payload = {
@@ -26,6 +34,7 @@ class LocalOllamaClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            "options": {"temperature": self._temperature},
         }
         endpoint = f"{self._base_url}/api/chat"
         data = json.dumps(payload).encode("utf-8")

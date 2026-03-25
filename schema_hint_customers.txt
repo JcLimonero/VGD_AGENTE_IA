@@ -54,5 +54,7 @@ Indices y constraints relevantes:
 
 Notas de negocio:
 - Se recomienda agrupar por idAgency para analisis por agencia.
+- En la app web puedes fijar una agencia desde el resultado (Seguimiento por agencia) o activar el auto-fijado
+  cuando todas las filas devueltas sean de la misma agencia.
 - Los campos de contacto pueden tener valores nulos o vacios.
 - last_sale es texto; si se requiere analisis temporal, validar formato antes de castear.

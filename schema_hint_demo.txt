@@ -40,29 +40,34 @@ Tablas disponibles para analisis demo:
 - payment_method
 - status
 
-4) services
+4) services  ← servicios realizados (tiene cost y service_date)
 - id (PK)
 - customer_id (FK -> customers.id)
 - vehicle_id (FK -> vehicles.id)
-- service_date
+- service_date  ← fecha del servicio (solo existe aquí, NO en service_appointments)
 - service_type
-- cost
+- cost  ← monto del servicio (solo existe aquí, NO en service_appointments)
 - status
 - workshop
 - notes
 
-5) service_appointments
+5) service_appointments  ← agenda de citas (NO tiene cost, notes ni service_date)
 - id (PK)
 - customer_id (FK -> customers.id)
 - vehicle_id (FK -> vehicles.id)
-- appointment_date
+- appointment_date  ← fecha de la cita (NO existe service_date aquí)
 - service_type
-- appointment_status (completada, programada, no_show, cancelada)
+- appointment_status (completada, programada, no_show, cancelada)  ← NO se llama status
 - workshop
 - cancellation_reason
 - attended
 - created_at
 - updated_at
+
+NOTA: services y service_appointments son tablas diferentes.
+- Para costos de servicio → usa services.cost
+- Para fechas de servicio → usa services.service_date
+- Para agenda/citas → usa service_appointments con appointment_date y appointment_status
 
 6) insurance_policies
 - id (PK)
@@ -121,6 +126,7 @@ Preguntas de negocio que soporta este demo:
   - o poliza vencida.
 
 Buenas practicas:
+- Cualquier listado o detalle por vehículo debe incluir siempre la columna vin (tabla vehicles); si solo hay vehicle_id, JOIN vehicles y selecciona vin.
 - Para recompra, usar ventanas (LAG) en sales por customer_id y calcular dias entre compras.
 - Para recomendacion por rango de edad, agrupar por buckets de age y unit_type.
 - Para seguro, combinar customers + vehicles + insurance_policies filtrando por policy_status y fechas.

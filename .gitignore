@@ -1,5 +1,73 @@
+# --- Entornos virtuales ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- Bytecode y C extensions ---
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+
+# --- Distribución / setuptools ---
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
 *.egg-info/
+*.egg
+MANIFEST
+pip-wheel-metadata/
+
+# --- Pruebas y cobertura ---
 .pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+.coverage
+.coverage.*
+*.cover
+*.log
+.cache
+nosetests.xml
+.hypothesis/
+
+# --- Tipado y linters ---
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+
+# --- Secretos y entorno (no versionar) ---
+.env
+.env.*
+!.env.example
+
+# --- IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+
+# --- Proyecto ---
 .local/

@@ -46,6 +46,9 @@ def _load_schema_hint(path: str) -> str:
 
 
 def main() -> None:
+    from .bootstrap_env import load_dotenv_from_project_root
+
+    load_dotenv_from_project_root()
     args = parse_args()
     question = " ".join(args.pregunta)
 
@@ -63,6 +66,7 @@ def main() -> None:
             base_url=settings.llm_endpoint,
             model_name=settings.llm_model,
             timeout_seconds=settings.llm_timeout_seconds,
+            temperature=settings.llm_temperature,
         )
         schema_hint = _load_schema_hint(settings.schema_hint_file)
         agent = DwhAgent(dwh_client=dwh, llm_client=llm, schema_hint=schema_hint)
