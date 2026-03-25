@@ -456,6 +456,63 @@ def _insurance_premium_for_unit(unit_type: str, risk_profile: str, rnd: random.R
     return round(base * risk_multiplier * rnd.uniform(0.9, 1.12), 2)
 
 
+def _ensure_min_future_appointments(
+    appointments: list[tuple[object, ...]],
+    *,
+    customer_ids: list[int],
+    customer_to_vehicles: dict[int, list[int]],
+    today: date,
+    rnd: random.Random,
+    service_types: list[str],
+    workshops: list[str],
+    min_future_count: int = 100,
+) -> list[tuple[object, ...]]:
+    """Garantiza un mínimo de citas futuras en ventana de 3 meses."""
+    start_future = today + timedelta(days=1)
+    end_future = today + timedelta(days=90)
+
+    current_future_count = 0
+    for row in appointments:
+        appointment_date_raw = str(row[2])
+        appointment_date = date.fromisoformat(appointment_date_raw)
+        if start_future <= appointment_date <= end_future:
+            current_future_count += 1
+
+    missing = max(0, min_future_count - current_future_count)
+    if missing == 0:
+        return appointments
+
+    for _ in range(missing):
+        customer_id = rnd.choice(customer_ids)
+        vehicles = customer_to_vehicles.get(customer_id) or []
+        if not vehicles:
+            continue
+        vehicle_id = rnd.choice(vehicles)
+        appointment_date = today + timedelta(days=rnd.randint(1, 90))
+        service_type = rnd.choice(service_types)
+        workshop = rnd.choice(workshops)
+        appointment_status = "programada"
+        cancellation_reason = None
+        attended = 0
+        created_at = (appointment_date - timedelta(days=rnd.randint(1, 25))).isoformat()
+        updated_at = created_at
+        appointments.append(
+            (
+                customer_id,
+                vehicle_id,
+                appointment_date.isoformat(),
+                service_type,
+                appointment_status,
+                workshop,
+                cancellation_reason,
+                attended,
+                created_at,
+                updated_at,
+            )
+        )
+    return appointments
+
+
 def _seed_data(conn: sqlite3.Connection) -> None:
     rnd = random.Random(20260324)
 
@@ -762,6 +819,17 @@ def _seed_data(conn: sqlite3.Connection) -> None:
                         updated_at,
                     )
                 )
+
+    service_appointments = _ensure_min_future_appointments(
+        service_appointments,
+        customer_ids=customer_ids,
+        customer_to_vehicles=customer_to_vehicles,
+        today=today,
+        rnd=rnd,
+        service_types=service_types,
+        workshops=workshops,
+        min_future_count=100,
+    )
 
     conn.executemany(
         """
