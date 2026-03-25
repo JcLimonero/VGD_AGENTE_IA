@@ -154,6 +154,8 @@ class DwhClient:
         if self.dialect_name == "sqlite":
             normalized = self._normalize_sqlite_sql(normalized)
         elif self.dialect_name == "postgresql":
+            normalized = self._rewrite_postgresql_count_empty_parentheses(normalized)
+            normalized = self._rewrite_postgresql_mysql_style_date_parts(normalized)
             normalized = self._rewrite_postgresql_extract_epoch_from_date_subtraction(normalized)
             normalized = self._rewrite_postgresql_round_two_arg(normalized)
 
@@ -486,4 +488,50 @@ class DwhClient:
             sql,
             flags=re.IGNORECASE,
         )
+
+    def _rewrite_postgresql_count_empty_parentheses(self, sql: str) -> str:
+        """PostgreSQL no admite COUNT(); el LLM a veces lo emite como en otros dialectos."""
+        return re.sub(r"\bCOUNT\s*\(\s*\)", "COUNT(*)", sql, flags=re.IGNORECASE)
+
+    def _rewrite_postgresql_mysql_style_date_parts(self, sql: str) -> str:
+        """
+        MySQL usa YEAR(col), MONTH(col), DAY(col). En PostgreSQL no existen; usar EXTRACT.
+        Recorre de izquierda a derecha respetando paréntesis anidados en el argumento.
+        Repite por si hay anidación YEAR(MONTH(...)).
+        """
+        for _ in range(10):
+            pattern = re.compile(r"\b(YEAR|MONTH|DAY)\s*\(", re.IGNORECASE)
+            out: list[str] = []
+            i = 0
+            changed = False
+            while True:
+                m = pattern.search(sql, i)
+                if not m:
+                    out.append(sql[i:])
+                    break
+                out.append(sql[i : m.start()])
+                unit = m.group(1).upper()
+                open_paren = m.end() - 1
+                depth = 0
+                j = open_paren
+                while j < len(sql):
+                    ch = sql[j]
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            inner = sql[open_paren + 1 : j].strip()
+                            out.append(f"EXTRACT({unit} FROM {inner})")
+                            i = j + 1
+                            changed = True
+                            break
+                    j += 1
+                else:
+                    out.append(sql[m.start() :])
+                    break
+            sql = "".join(out)
+            if not changed:
+                break
+        return sql
 

@@ -12,6 +12,12 @@ from .sql_vehicle_context import apply_vehicle_focus_sql_rewrites
 
 SYSTEM_PROMPT = """Eres un asistente experto en SQL para analytics.
 Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
+
+OBLIGATORIO — dialecto: el bloque «Motor SQL objetivo» del mensaje de usuario define el motor.
+Si indica PostgreSQL, genera SOLO sintaxis válida en PostgreSQL. NO uses funciones ni hábitos de MySQL
+(YEAR/MONTH/DAY como función, IFNULL, LIMIT en medio de la sentencia como en otros motores), ni de
+SQL Server (DATEADD, TOP, corchetes), ni de SQLite salvo que el mensaje pida SQLite explícitamente.
+
 Las preguntas del usuario están en español: interpreta la intención en español (los nombres de tablas/columnas del esquema pueden estar en inglés).
 
 Ejemplos de estilo (PostgreSQL; adapta tablas/columnas al esquema dado):
@@ -36,7 +42,7 @@ Reglas obligatorias:
 4) No uses UPDATE, INSERT, DELETE, DROP, ALTER, CREATE, TRUNCATE, MERGE, GRANT, REVOKE, CALL o EXEC.
 5) Limita resultados a un máximo de 1000 filas cuando aplique.
 6) Si la pregunta no se puede resolver con SQL, devuelve: SELECT 'No se puede resolver con SQL' AS mensaje;
-7) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
+7) Respeta SIEMPRE el dialecto del «Motor SQL objetivo» en el mensaje de usuario (en este producto suele ser PostgreSQL).
 8) Si la pregunta pide datos de vehículos o cada fila identifica un vehículo (tabla vehicles, vehicle_id,
    ventas/servicios/citas/pólizas por unidad), incluye SIEMPRE la columna vin: haz JOIN a vehicles si no está
    y expón vehicles.vin (o alias v.vin). No aplica a agregados puramente globales sin desglose por unidad.
@@ -65,17 +71,22 @@ Reglas obligatorias:
     no INTERVAL. NO uses EXTRACT(EPOCH FROM (fecha1 - fecha2)) (falla). Opciones válidas:
     - Promedio en días: AVG(fecha1 - fecha2) o AVG((fecha1 - fecha2)::numeric).
     - Si necesitas EPOCH: EXTRACT(EPOCH FROM (fecha1::timestamp - fecha2::timestamp)).
+16) PostgreSQL: NO uses funciones estilo MySQL YEAR(c), MONTH(c), DAY(c) (no existen). Usa
+    EXTRACT(YEAR FROM c), EXTRACT(MONTH FROM c), EXTRACT(DAY FROM c).
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
 Debes corregir una consulta SQL que falló al ejecutarse.
+
+El dialecto lo fija el bloque «Motor SQL objetivo» del mensaje de usuario (casi siempre PostgreSQL).
+La salida debe ser SQL ejecutable en ESE motor, no en MySQL ni SQL Server.
 
 Reglas obligatorias:
 1) Responde SOLO con SQL (sin markdown ni texto adicional).
 2) Mantén la intención original de la pregunta de negocio.
 3) Usa únicamente SQL de lectura (SELECT/CTE), sin operaciones de escritura.
 4) Corrige alias, columnas o joins inválidos según el error reportado.
-5) Respeta SIEMPRE el dialecto SQL del motor indicado en el prompt del usuario.
+5) Respeta SIEMPRE el dialecto del «Motor SQL objetivo» en el mensaje de usuario.
 6) Si la consulta trata vehículos o filas con vehicle_id, asegura que el SELECT incluya vin (desde vehicles).
 7) services y service_appointments son tablas DIFERENTES:
    - services tiene cost, service_date, status, notes.
@@ -90,6 +101,8 @@ Reglas obligatorias:
 12) Corrige COUNT() sin argumento a COUNT(*).
 13) Si el error es «extract(unknown, integer)» o EXTRACT(EPOCH FROM ...) con resta de fechas DATE,
     usa AVG(f1 - f2) en días o EXTRACT(EPOCH FROM (f1::timestamp - f2::timestamp)).
+14) Si el error es «function year(date) does not exist» (o month/day): reemplaza YEAR(x) por
+    EXTRACT(YEAR FROM x); MONTH(x) y DAY(x) igual con EXTRACT.
 """
 
 
@@ -127,11 +140,14 @@ class DwhAgent:
         if dialect == "postgresql":
             return (
                 "Motor SQL objetivo: PostgreSQL.\n"
+                "Genera SQL que ejecute en PostgreSQL sin errores de sintaxis de otros motores.\n"
                 "Reglas de dialecto PostgreSQL:\n"
-                "- Para fechas usa intervalos (por ejemplo: fecha + INTERVAL '1 month').\n"
-                "- Evita funciones exclusivas de SQL Server como DATEADD.\n"
-                "- Para redondear decimales usa ROUND((expresion)::numeric, n); "
-                "no uses ROUND(expresion_float, n) sobre double precision/real sin cast.\n"
+                "- Fechas: EXTRACT(YEAR FROM col), no YEAR(col); intervalos con INTERVAL '1 day' / '1 month'.\n"
+                "- Agregados: COUNT(*) o COUNT(col); nunca COUNT() vacío.\n"
+                "- LIMIT va al final del SELECT (o subconsulta) según sintaxis PostgreSQL.\n"
+                "- Casts habituales: expresion::numeric, expresion::date, expresion::timestamp.\n"
+                "- Para redondear: ROUND((expresion)::numeric, n); evita ROUND sobre double sin cast.\n"
+                "- No uses DATEADD/DATEDIFF (SQL Server) ni IFNULL (usa COALESCE).\n"
             )
         if dialect:
             return f"Motor SQL objetivo: {dialect}.\nRespeta estrictamente este dialecto.\n"
@@ -143,7 +159,7 @@ class DwhAgent:
             f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
             f"Pregunta de negocio:\n{question}\n\n"
-            "Devuelve solamente SQL válido para el motor del DWH."
+            "Devuelve solamente SQL válido para el motor indicado arriba (mismo dialecto que el DWH)."
         )
 
     def _build_fix_prompt(self, question: str, previous_sql: str, execution_error: str) -> str:
@@ -154,7 +170,7 @@ class DwhAgent:
             f"Pregunta original:\n{question}\n\n"
             f"SQL que falló:\n{previous_sql}\n\n"
             f"Error de ejecución:\n{execution_error}\n\n"
-            "Devuelve SOLO una versión corregida del SQL."
+            "Devuelve SOLO una versión corregida del SQL para el motor indicado arriba."
         )
 
     def get_cache_stats(self) -> dict[str, Any]:

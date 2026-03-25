@@ -59,7 +59,9 @@ DEFAULT_DWH_URL = os.getenv("DEMO_DWH_URL") or os.getenv("DWH_URL") or ""
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_LLM_MODEL = "qwen2.5-coder:7b"
 FALLBACK_LLM_MODEL = "qwen2.5:7b"
-DEFAULT_SCHEMA_HINT = """Tablas demo disponibles:
+DEFAULT_SCHEMA_HINT = """Dialecto del DWH: PostgreSQL. Todas las consultas generadas deben usar solo sintaxis válida en PostgreSQL.
+
+Tablas demo disponibles:
 - Regla: si la consulta muestra datos por vehículo (vehicles o vehicle_id), incluye siempre vin (JOIN vehicles si hace falta).
 - CRÍTICO — columna agency_id / idAgency: en ESTE esquema demo NO EXISTE en sales, services, service_appointments,
   insurance_policies, customers ni vehicles. NUNCA escribas sales.agency_id ni GROUP BY agency_id sobre sales.
