@@ -166,6 +166,21 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "avg_time_between_purchases": "Días Promedio Entre Compras",
     "avg_days_between_purchases": "Días Promedio Entre Compras",
     "avg_rebuy_time": "Días Promedio Recompra",
+    # Alias frecuentes generados por LLM (EN -> ES)
+    "frequency": "Frecuencia",
+    "count": "Conteo",
+    "total": "Total",
+    "total_count": "Total",
+    "total_appointments": "Total Citas",
+    "total_programmed_appointments": "Citas Programadas",
+    "completed_appointments": "Citas Completadas",
+    "cancelled_appointments": "Citas Canceladas",
+    "no_show_appointments": "Citas No Show",
+    "conversion_rate": "Tasa de Conversión",
+    "no_show_rate": "Tasa de No Show",
+    "appointment_conversion_rate": "Tasa de Conversión Citas",
+    "cancelation_rate": "Tasa de Cancelación",
+    "cancellation_rate": "Tasa de Cancelación",
 }
 SPANISH_VALUE_LABELS: dict[str, str] = {
     # Estatus de venta/servicio/póliza
@@ -504,17 +519,23 @@ def _render_chart_options(rows: list[dict[str, Any]]) -> None:
         st.info("No hay datos válidos para construir la gráfica.")
         return
 
+    # Renombramos a etiquetas amigables para que ejes y tooltips no muestren
+    # nombres técnicos (snake_case/inglés) al cliente.
+    friendly_x = label_map.get(x_col, _friendly_column_name(x_col))
+    friendly_y = label_map.get(y_col, _friendly_column_name(y_col))
+    chart_df = chart_df.rename(columns={x_col: friendly_x, y_col: friendly_y})
+
     # index de texto para categorías y fechas convertibles
-    chart_df[x_col] = chart_df[x_col].astype(str)
-    chart_df = chart_df.set_index(x_col)
+    chart_df[friendly_x] = chart_df[friendly_x].astype(str)
+    chart_df = chart_df.set_index(friendly_x)
 
     # Pasamos solo la serie Y para evitar errores por columnas faltantes al rerender.
     if chart_type == "Barras":
-        st.bar_chart(chart_df[[y_col]], use_container_width=True)
+        st.bar_chart(chart_df[[friendly_y]], use_container_width=True)
     elif chart_type == "Línea":
-        st.line_chart(chart_df[[y_col]], use_container_width=True)
+        st.line_chart(chart_df[[friendly_y]], use_container_width=True)
     else:
-        st.area_chart(chart_df[[y_col]], use_container_width=True)
+        st.area_chart(chart_df[[friendly_y]], use_container_width=True)
 
 
 def _extract_pg_hba_ip(error_message: str) -> str:
