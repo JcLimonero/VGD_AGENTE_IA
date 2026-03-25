@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 import os
 from pathlib import Path
 import re
@@ -167,7 +168,7 @@ SPANISH_COLUMN_LABELS: dict[str, str] = {
     "avg_days_between_purchases": "Días Promedio Entre Compras",
     "avg_rebuy_time": "Días Promedio Recompra",
     # Alias frecuentes generados por LLM (EN -> ES)
-    "frequency": "Frecuencia",
+    "frequency": "Cantidad",
     "count": "Conteo",
     "total": "Total",
     "total_count": "Total",
@@ -442,6 +443,16 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
     df = _format_mxn_columns(df)
     pretty_df, _ = _prettify_dataframe_columns(df)
     st.dataframe(pretty_df, use_container_width=True)
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        pretty_df.to_excel(writer, index=False, sheet_name="Resultados")
+    st.download_button(
+        label="Descargar resultados en Excel",
+        data=excel_buffer.getvalue(),
+        file_name="resultados_consulta.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
 
 def _render_chart_options(rows: list[dict[str, Any]]) -> None:
