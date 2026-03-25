@@ -105,6 +105,94 @@ WHERE rn = 1
 ORDER BY age_range, gender;
 """.strip()
 
+_APPT_NO_SHOW_BY_WORKSHOP_SQL = """
+SELECT
+    workshop,
+    COUNT(*) AS total_citas,
+    SUM(CASE WHEN appointment_status = 'no_show' THEN 1 ELSE 0 END) AS no_show_count,
+    ROUND(
+        CAST(SUM(CASE WHEN appointment_status = 'no_show' THEN 1 ELSE 0 END) AS REAL)
+        / NULLIF(COUNT(*), 0)
+        * 100,
+        2
+    ) AS no_show_rate
+FROM service_appointments
+GROUP BY workshop
+ORDER BY no_show_rate DESC, no_show_count DESC;
+""".strip()
+
+_APPT_CONVERSION_BY_WORKSHOP_SQL = """
+SELECT
+    workshop,
+    SUM(CASE WHEN appointment_status = 'programada' THEN 1 ELSE 0 END) AS citas_programadas,
+    SUM(CASE WHEN appointment_status = 'completada' THEN 1 ELSE 0 END) AS citas_completadas,
+    ROUND(
+        CAST(SUM(CASE WHEN appointment_status = 'completada' THEN 1 ELSE 0 END) AS REAL)
+        / NULLIF(
+            SUM(
+                CASE
+                    WHEN appointment_status IN ('programada', 'completada') THEN 1
+                    ELSE 0
+                END
+            ),
+            0
+        )
+        * 100,
+        2
+    ) AS conversion_rate
+FROM service_appointments
+GROUP BY workshop
+ORDER BY conversion_rate DESC, citas_completadas DESC;
+""".strip()
+
+_APPT_CANCELLATIONS_BY_REASON_SQL = """
+SELECT
+    COALESCE(cancellation_reason, 'Sin motivo') AS cancellation_reason,
+    COUNT(*) AS cancellation_count
+FROM service_appointments
+WHERE appointment_status = 'cancelada'
+GROUP BY COALESCE(cancellation_reason, 'Sin motivo')
+ORDER BY cancellation_count DESC, cancellation_reason ASC;
+""".strip()
+
+_APPT_NO_SHOW_BY_WORKSHOP_ADVISOR_SQL = """
+SELECT
+    workshop,
+    COUNT(*) AS no_show_count
+FROM service_appointments
+WHERE appointment_status = 'no_show'
+GROUP BY workshop
+ORDER BY no_show_count DESC, workshop ASC
+LIMIT 10;
+""".strip()
+
+_APPT_NO_SHOW_WEEKLY_SQL = """
+SELECT
+    strftime('%Y-%W', appointment_date) AS week,
+    COUNT(*) AS total_citas,
+    SUM(CASE WHEN appointment_status = 'no_show' THEN 1 ELSE 0 END) AS no_show_count,
+    ROUND(
+        CAST(SUM(CASE WHEN appointment_status = 'no_show' THEN 1 ELSE 0 END) AS REAL)
+        / NULLIF(COUNT(*), 0)
+        * 100,
+        2
+    ) AS no_show_rate
+FROM service_appointments
+WHERE appointment_date >= date('now', '-3 months')
+GROUP BY strftime('%Y-%W', appointment_date)
+ORDER BY week;
+""".strip()
+
+_APPT_STATUS_THIS_MONTH_SQL = """
+SELECT
+    appointment_status,
+    COUNT(*) AS cantidad
+FROM service_appointments
+WHERE strftime('%Y-%m', appointment_date) = strftime('%Y-%m', date('now'))
+GROUP BY appointment_status
+ORDER BY cantidad DESC;
+""".strip()
+
 
 def _contains_any(text: str, terms: Iterable[str]) -> bool:
     lowered = text.lower()
@@ -146,6 +234,55 @@ def match_kpi_template(question: str) -> DeterministicQuery | None:
             name="unit_type_by_age_gender",
             sql=_UNIT_BY_AGE_GENDER_SQL,
             explanation="Unidad más comprada por rango de edad y género usando datos históricos.",
+        )
+
+    if _contains_any(normalized, ("no show", "no_show")) and _contains_any(
+        normalized, ("taller", "por taller", "por asesor", "asesor", "top")
+    ):
+        if _contains_any(normalized, ("top", "asesor")):
+            return DeterministicQuery(
+                name="appointments_no_show_top",
+                sql=_APPT_NO_SHOW_BY_WORKSHOP_ADVISOR_SQL,
+                explanation="Top de no-show por taller en agenda de servicio.",
+            )
+        return DeterministicQuery(
+            name="appointments_no_show_rate",
+            sql=_APPT_NO_SHOW_BY_WORKSHOP_SQL,
+            explanation="Tasa de no-show por taller con base en citas de servicio.",
+        )
+
+    if _contains_any(normalized, ("no show", "no_show")) and _contains_any(
+        normalized, ("semanal", "semana", "últimos 3 meses", "ultimos 3 meses")
+    ):
+        return DeterministicQuery(
+            name="appointments_no_show_weekly",
+            sql=_APPT_NO_SHOW_WEEKLY_SQL,
+            explanation="Evolución semanal de no-show en los últimos 3 meses.",
+        )
+
+    if _contains_any(normalized, ("motivos de cancelación", "motivos de cancelacion", "cancelaciones por motivo")):
+        return DeterministicQuery(
+            name="appointments_cancellations_by_reason",
+            sql=_APPT_CANCELLATIONS_BY_REASON_SQL,
+            explanation="Cancelaciones de citas agrupadas por motivo.",
+        )
+
+    if _contains_any(normalized, ("conversión", "conversion")) and _contains_any(
+        normalized, ("programadas", "completadas", "citas")
+    ):
+        return DeterministicQuery(
+            name="appointments_conversion_by_workshop",
+            sql=_APPT_CONVERSION_BY_WORKSHOP_SQL,
+            explanation="Conversión de citas programadas/completadas por taller.",
+        )
+
+    if _contains_any(normalized, ("citas de servicio", "citas")) and _contains_any(
+        normalized, ("estatus", "estado", "este mes")
+    ):
+        return DeterministicQuery(
+            name="appointments_status_current_month",
+            sql=_APPT_STATUS_THIS_MONTH_SQL,
+            explanation="Distribución de estatus de citas de servicio en el mes actual.",
         )
 
     return None
