@@ -7,6 +7,7 @@ import { QueryResultsChart } from '@/components/QueryResultsChart'
 import { downloadQueryResultsCsv } from '@/lib/csvExport'
 import type { ChatMessage } from '@/types/index'
 import { cn } from '@/lib/utils'
+import { SaveChatQueryAction } from '@/components/SaveChatQueryAction'
 
 type TabId = 'summary' | 'chart' | 'table'
 
@@ -89,6 +90,13 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
       </div>
 
       <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">Consulta ejecutada correctamente.</p>
+
+      {results.generated_sql?.trim() ? (
+        <SaveChatQueryAction
+          userQuestion={message.metadata?.user_question ?? ''}
+          sql={results.generated_sql.trim()}
+        />
+      ) : null}
     </div>
   )
 }

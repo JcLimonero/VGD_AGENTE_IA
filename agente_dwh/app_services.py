@@ -45,12 +45,14 @@ def build_llm_client(
     llm_model: str,
     llm_timeout_seconds: int,
     llm_temperature: float,
+    llm_seed: int | None = None,
 ):
     base = LocalOllamaClient(
         base_url=llm_endpoint,
         model_name=llm_model,
         timeout_seconds=llm_timeout_seconds,
         temperature=llm_temperature,
+        seed=llm_seed,
     )
     if _env_flag("LLM_USE_WORKER", default=False):
         return WorkerLlmClient(base)
@@ -67,7 +69,8 @@ def build_agent_service(
     schema_hint: str,
     cache_ttl_seconds: int,
     cache_max_entries: int,
-    llm_temperature: float = 0.2,
+    llm_temperature: float = 0.0,
+    llm_seed: int | None = None,
     llm_profile: str | None = None,
     schema_hint_file: str = "",
 ) -> DwhAgent:
@@ -82,6 +85,7 @@ def build_agent_service(
         llm_model=llm_model,
         llm_timeout_seconds=llm_timeout_seconds,
         llm_temperature=llm_temperature,
+        llm_seed=llm_seed,
     )
     resolved_profile = llm_profile or resolve_llm_profile(schema_hint_file, dwh_url=dwh_url)
     return DwhAgent(

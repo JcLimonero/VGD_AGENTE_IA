@@ -9,6 +9,7 @@ import jwt
 from datetime import datetime, timedelta
 from functools import lru_cache
 import os
+import uuid
 import bcrypt
 import json
 from contextlib import asynccontextmanager
@@ -141,6 +142,7 @@ def get_dwh_agent() -> DwhAgent:
         cache_ttl_seconds=cfg.cache_ttl_seconds,
         cache_max_entries=cfg.cache_max_entries,
         llm_temperature=cfg.llm_temperature,
+        llm_seed=cfg.llm_seed,
         schema_hint_file=cfg.schema_hint_file,
     )
 
@@ -160,7 +162,7 @@ _NL_SUMMARY_SYSTEM_PROMPT = (
 
 
 def _heuristic_nl_summary(rows: list[dict[str, Any]]) -> str | None:
-    """Resumen heurístico sin LLM. None si hay demasiadas filas/columnas."""
+    """Resumen heurístico sin LLM. None solo para conjuntos muy grandes (evita respuestas distintas por LLM)."""
     n = len(rows)
     if n == 0:
         return "La consulta no devolvió ningún resultado. Puedes intentar ampliar los criterios de búsqueda."
@@ -174,6 +176,18 @@ def _heuristic_nl_summary(rows: list[dict[str, Any]]) -> str | None:
             pairs = [f"**{k}:** {row.get(k)}" for k in keys]
             lines.append("- " + " · ".join(pairs))
         return f"Se encontraron **{n} registros**:\n" + "\n".join(lines)
+    if n <= 50 and len(keys) <= 10:
+        preview = min(5, n)
+        lines = []
+        for row in rows[:preview]:
+            pairs = [f"**{k}:** {row.get(k)}" for k in keys]
+            lines.append("- " + " · ".join(pairs))
+        more = (
+            f"\n\n…y **{n - preview}** filas más (consulta la tabla para el detalle completo)."
+            if n > preview
+            else ""
+        )
+        return f"Se encontraron **{n} registros**:\n" + "\n".join(lines) + more
     return None
 
 
@@ -438,26 +452,52 @@ def _stub_saved_query_row(query_id: str, user_id: str) -> Dict[str, Any]:
     }
 
 
+# Queries creadas vía POST (en memoria hasta BD real). id -> documento con user_id.
+_queries_by_id: Dict[str, Dict[str, Any]] = {}
+
+
+def _demo_query_for_list(user_id: Any) -> Dict[str, Any]:
+    """Ítem fijo de ejemplo id=1 (no está en _queries_by_id)."""
+    uid = str(user_id)
+    return {
+        "id": "1",
+        "user_id": uid,
+        "title": "Ventas por Mes",
+        "original_question": "¿Cuánto vendimos cada mes?",
+        "sql_text": _STUB_DEMO_SAVED_SQL,
+        "chart_type": "line",
+        "chart_config": {"xAxis": "month", "yAxis": "total"},
+        "refresh_interval": "1 hour",
+        "is_active": True,
+        "tags": ["ventas", "mensual"],
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _list_queries_for_user(user_id: Any) -> list[Dict[str, Any]]:
+    uid = str(user_id)
+    demo = _demo_query_for_list(uid)
+    saved = [d for d in _queries_by_id.values() if str(d.get("user_id")) == uid]
+    saved.sort(key=lambda d: str(d.get("created_at", "")), reverse=True)
+    return [demo] + saved
+
+
+def _get_query_doc(query_id: str, user_id: Any) -> Dict[str, Any] | None:
+    """Documento persistido en memoria o None."""
+    doc = _queries_by_id.get(query_id)
+    if doc is None:
+        return None
+    if str(doc.get("user_id")) != str(user_id):
+        return None
+    return doc
+
+
 @app.get("/api/queries")
 async def get_queries(current_user: dict = Depends(get_current_user)):
     """Listar todas las queries del usuario"""
-    # TODO: Obtener de base de datos real
-    return [
-        {
-            "id": "1",
-            "user_id": current_user["id"],
-            "title": "Ventas por Mes",
-            "original_question": "¿Cuánto vendimos cada mes?",
-            "sql_text": _STUB_DEMO_SAVED_SQL,
-            "chart_type": "line",
-            "chart_config": {"xAxis": "month", "yAxis": "total"},
-            "refresh_interval": "1 hour",
-            "is_active": True,
-            "tags": ["ventas", "mensual"],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    ]
+    # TODO: base de datos real; mientras: demo + creadas en memoria en esta sesión de API
+    return _list_queries_for_user(current_user["id"])
 
 @app.post("/api/queries")
 async def create_query(query: QueryCreate, current_user: dict = Depends(get_current_user)):
@@ -470,7 +510,7 @@ async def create_query(query: QueryCreate, current_user: dict = Depends(get_curr
 
     # TODO: Guardar en base de datos
     new_query = {
-        "id": "new_id",  # TODO: Generar ID real
+        "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
         "title": query.title,
         "original_question": query.original_question,
@@ -483,42 +523,66 @@ async def create_query(query: QueryCreate, current_user: dict = Depends(get_curr
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
-
+    _queries_by_id[new_query["id"]] = new_query
     return new_query
 
 @app.get("/api/queries/{query_id}")
 async def get_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Obtener detalle de una query"""
-    # TODO: Obtener de base de datos
-    return _stub_saved_query_row(query_id, current_user["id"])
+    uid = current_user["id"]
+    if query_id == "1":
+        return _stub_saved_query_row("1", str(uid))
+    doc = _get_query_doc(query_id, uid)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Query no encontrada")
+    return doc
 
 @app.put("/api/queries/{query_id}")
 async def update_query(query_id: str, updates: QueryUpdate, current_user: dict = Depends(get_current_user)):
     """Actualizar query"""
-    # TODO: Validar permisos y actualizar en BD
+    uid = current_user["id"]
     patch = updates.dict(exclude_unset=True)
     if "sql_text" in patch:
         try:
             validate_read_only_sql(patch["sql_text"])
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"SQL inválido: {str(e)}")
-    existing = _stub_saved_query_row(query_id, current_user["id"])
-    merged = {**existing, **patch}
+    if query_id == "1":
+        existing = _stub_saved_query_row(query_id, str(uid))
+        merged = {**existing, **patch}
+        merged["updated_at"] = datetime.utcnow().isoformat()
+        return merged
+    doc = _get_query_doc(query_id, uid)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Query no encontrada")
+    merged = {**doc, **patch}
     merged["updated_at"] = datetime.utcnow().isoformat()
+    _queries_by_id[query_id] = merged
     return merged
 
 @app.delete("/api/queries/{query_id}")
 async def delete_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Eliminar query"""
-    # TODO: Eliminar de base de datos
+    uid = current_user["id"]
+    if query_id == "1":
+        raise HTTPException(status_code=400, detail="No se puede eliminar la query de demostración")
+    if _get_query_doc(query_id, uid) is None:
+        raise HTTPException(status_code=404, detail="Query no encontrada")
+    del _queries_by_id[query_id]
     return {"message": "Query eliminada"}
 
 @app.post("/api/queries/{query_id}/execute")
 async def execute_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Ejecutar una query guardada"""
     try:
-        # TODO: Obtener SQL de base de datos; por ahora mismo documento stub que get/put
-        stub = _stub_saved_query_row(query_id, current_user["id"])
+        uid = current_user["id"]
+        if query_id == "1":
+            stub = _stub_saved_query_row(query_id, str(uid))
+        else:
+            doc = _get_query_doc(query_id, uid)
+            if doc is None:
+                raise HTTPException(status_code=404, detail="Query no encontrada")
+            stub = doc
 
         agent = get_dwh_agent()
         start_time = datetime.utcnow()
@@ -549,6 +613,8 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
             "total_rows": len(rows),
             "execution_time_ms": duration,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

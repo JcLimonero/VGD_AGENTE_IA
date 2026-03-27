@@ -67,6 +67,7 @@ def main() -> None:
             cache_ttl_seconds=settings.cache_ttl_seconds,
             cache_max_entries=settings.cache_max_entries,
             llm_temperature=settings.llm_temperature,
+            llm_seed=settings.llm_seed,
             schema_hint_file=settings.schema_hint_file,
         )
         result = agent.answer(question=question)

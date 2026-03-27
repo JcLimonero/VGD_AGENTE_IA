@@ -19,14 +19,22 @@ class LocalOllamaClient:
         model_name: str,
         timeout_seconds: int = 60,
         *,
-        temperature: float = 0.2,
+        temperature: float = 0.0,
+        seed: int | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         self._timeout_seconds = timeout_seconds
         self._temperature = temperature
+        self._seed = seed
 
     def _chat_completion(self, system_prompt: str, user_prompt: str) -> str:
+        options: dict[str, object] = {"temperature": self._temperature}
+        if self._seed is not None:
+            options["seed"] = self._seed
+        if self._temperature <= 0.01:
+            options["top_k"] = 1
+
         payload = {
             "model": self._model_name,
             "stream": False,
@@ -34,7 +42,7 @@ class LocalOllamaClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "options": {"temperature": self._temperature},
+            "options": options,
         }
         endpoint = f"{self._base_url}/api/chat"
         data = json.dumps(payload).encode("utf-8")

@@ -132,7 +132,8 @@ class Config:
     llm_model: str
     max_rows: int
     llm_timeout_seconds: int
-    llm_temperature: float = 0.2
+    llm_temperature: float = 0.0
+    llm_seed: int | None = None
     cache_ttl_seconds: int = 120
     cache_max_entries: int = 500
     cache_backend: str = "local"
@@ -158,7 +159,7 @@ class Config:
         llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434").strip()
         llm_model = os.getenv("LLM_MODEL", "qwen2.5-coder:7b").strip()
         max_rows_raw = os.getenv("MAX_ROWS", "200").strip()
-        llm_temp_raw = os.getenv("LLM_TEMPERATURE", "0.2").strip()
+        llm_temp_raw = os.getenv("LLM_TEMPERATURE", "0").strip()
         timeout_raw = os.getenv("LLM_TIMEOUT_SECONDS", "180").strip()
         cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "120").strip()
         cache_max_entries_raw = os.getenv("CACHE_MAX_ENTRIES", "500").strip()
@@ -188,6 +189,19 @@ class Config:
         if not 0.0 <= llm_temperature <= 2.0:
             raise ConfigError("LLM_TEMPERATURE debe estar entre 0.0 y 2.0.")
 
+        # Reproducibilidad: con temperatura ~0, fijar semilla salvo que LLM_SEED esté vacío explícito.
+        if "LLM_SEED" in os.environ:
+            seed_raw = os.environ["LLM_SEED"].strip()
+            if not seed_raw:
+                llm_seed = None
+            else:
+                try:
+                    llm_seed = int(seed_raw)
+                except ValueError as exc:
+                    raise ConfigError("LLM_SEED debe ser un entero o cadena vacía.") from exc
+        else:
+            llm_seed = 42 if llm_temperature <= 0.01 else None
+
         try:
             cache_ttl_seconds = int(cache_ttl_raw)
         except ValueError as exc:
@@ -216,6 +230,7 @@ class Config:
             max_rows=max_rows,
             llm_timeout_seconds=llm_timeout_seconds,
             llm_temperature=llm_temperature,
+            llm_seed=llm_seed,
             cache_ttl_seconds=cache_ttl_seconds,
             cache_max_entries=cache_max_entries,
             cache_backend=cache_backend,

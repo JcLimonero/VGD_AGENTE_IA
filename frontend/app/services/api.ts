@@ -114,11 +114,15 @@ class APIClient {
   }
 
   // Chat / Agent
-  async sendMessage(message: string, context?: any) {
-    const response = await this.client.post('/api/agent/chat', {
-      message,
-      context,
-    })
+  async sendMessage(message: string, context?: any, signal?: AbortSignal) {
+    const response = await this.client.post(
+      '/api/agent/chat',
+      {
+        message,
+        context,
+      },
+      { signal }
+    )
     return response.data
   }
 

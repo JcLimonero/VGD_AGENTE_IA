@@ -49,7 +49,8 @@ function formatInline(text: string): string {
 export default function ChatPage() {
   const router = useRouter()
   const { isAuthenticated, logout } = useAuth()
-  const { messages, isLoading, error, sendMessage } = useChat()
+  const { messages, isLoading, error, cancelledDraft, sendMessage, cancelPendingRequest, setCancelledDraft } =
+    useChat()
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -62,6 +63,12 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (cancelledDraft === null) return
+    if (cancelledDraft !== '') setInput(cancelledDraft)
+    setCancelledDraft(null)
+  }, [cancelledDraft, setCancelledDraft])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -128,12 +135,22 @@ export default function ChatPage() {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-700">
-                <div className="flex space-x-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+              <div className="flex max-w-md flex-col gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Consultando al agente…</span>
+                  <div className="flex space-x-1">
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:100ms]" />
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:200ms]" />
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => cancelPendingRequest()}
+                  className="self-start rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
+                >
+                  Cancelar consulta
+                </button>
               </div>
             </div>
           )}
@@ -154,15 +171,24 @@ export default function ChatPage() {
           onSubmit={handleSendMessage}
           className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4"
         >
-          <div className="flex space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
               placeholder="Escribe tu pregunta..."
-              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white disabled:opacity-50"
+              className="min-w-0 flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white disabled:opacity-50"
             />
+            {isLoading && (
+              <button
+                type="button"
+                onClick={() => cancelPendingRequest()}
+                className="px-4 py-3 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+            )}
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
