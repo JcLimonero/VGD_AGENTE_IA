@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { useChat } from '@/hooks/useChat'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
-import { DataResultTable } from '@/components/DataResultTable'
+import { AgentResponseDataPanel } from '@/components/AgentResponseDataPanel'
 
 /** Renders simple markdown: **bold**, *italic*, - lists, line breaks */
 function SimpleMarkdown({ text }: { text: string }) {
@@ -77,7 +77,7 @@ export default function ChatPage() {
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
       {/* Header */}
       <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <AppBreadcrumb
             items={[
               { label: 'Dashboard', href: '/dashboard' },
@@ -95,7 +95,7 @@ export default function ChatPage() {
       </header>
 
       {/* Chat Container */}
-      <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 overflow-y-auto">
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 overflow-y-auto">
         <div className="space-y-4">
           {messages.length === 0 && (
             <div className="text-center py-12">
@@ -116,16 +116,11 @@ export default function ChatPage() {
                   <p className="text-sm">{msg.content}</p>
                 </div>
               ) : (
-                <div className="max-w-xl w-full px-4 py-3 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-bl-none border border-gray-200 dark:border-slate-700">
-                  <SimpleMarkdown text={msg.content} />
-                  {msg.metadata?.query_executed && msg.metadata?.results && (
-                    <DataResultTable results={msg.metadata.results} />
-                  )}
-                  {msg.metadata?.query_executed && (
-                    <p className="text-xs mt-2 text-gray-400 dark:text-gray-500">
-                      ✓ Query ejecutada exitosamente
-                    </p>
-                  )}
+                <div className="max-w-2xl w-full px-4 py-3 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-bl-none border border-gray-200 dark:border-slate-700">
+                  <AgentResponseDataPanel
+                    message={msg}
+                    summary={<SimpleMarkdown text={msg.content} />}
+                  />
                 </div>
               )}
             </div>
@@ -157,7 +152,7 @@ export default function ChatPage() {
       <footer className="border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <form
           onSubmit={handleSendMessage}
-          className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4"
+          className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4"
         >
           <div className="flex space-x-2">
             <input
