@@ -239,6 +239,9 @@ class DwhClient:
     def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
         return sql_rewrites.rewrite_postgresql_idagency_equality_cast(sql)
 
+    def _rewrite_postgresql_nd_client_dms_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_nd_client_dms_cast(sql)
+
     def _rewrite_postgresql_group_by_year_alias(self, sql: str) -> str:
         return sql_rewrites.rewrite_postgresql_group_by_year_alias(sql)
 
@@ -502,6 +505,9 @@ class DwhClient:
 
     def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
         return sql_rewrites.rewrite_postgresql_idagency_equality_cast(sql)
+
+    def _rewrite_postgresql_nd_client_dms_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_nd_client_dms_cast(sql)
 
     def _rewrite_postgresql_group_by_year_alias(self, sql: str) -> str:
         return sql_rewrites.rewrite_postgresql_group_by_year_alias(sql)
@@ -858,6 +864,7 @@ class DwhClient:
             normalized = self._quote_postgresql_mixed_case_identifiers(normalized)
             normalized = self._rewrite_postgresql_h_view_legacy_identifiers(normalized)
             normalized = self._rewrite_postgresql_idagency_equality_cast(normalized)
+            normalized = self._rewrite_postgresql_nd_client_dms_cast(normalized)
             normalized = self._rewrite_postgresql_group_by_year_alias(normalized)
             normalized = self._rewrite_postgresql_count_empty_parentheses(normalized)
             normalized = self._rewrite_postgresql_mysql_style_date_parts(normalized)

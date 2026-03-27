@@ -1464,55 +1464,6 @@ _DISAMBIGUATION_RULES: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "date_ambiguous",
-        "triggers": [
-            r"(?i)\bfecha\b(?!.*\b(?:nacimiento|birth)\b)",
-            r"(?i)\bcu[aá]ndo\b",
-            r"(?i)\b[uú]ltim[oa]\b.*\bfecha\b",
-        ],
-        "excludes": [
-            r"(?i)\bventa\b",
-            r"(?i)\bcompra\b",
-            r"(?i)\bservicio\b",
-            r"(?i)\bcita\b",
-            r"(?i)\bappointment\b",
-            r"(?i)\bseguro\b",
-            r"(?i)\bp[oó]liza\b",
-            r"(?i)\bnacimiento\b",
-            r"(?i)\bsale_date\b",
-            r"(?i)\bservice_date\b",
-            r"(?i)\bappointment_date\b",
-            r"(?i)\bpolicy_\b",
-            r"(?i)\bagenda\b",
-            r"(?i)\bprogramada\b",
-            r"(?i)\bcompletada\b",
-        ],
-        "prompt": "¿A qué fecha te refieres?",
-        "options": [
-            {
-                "label": "Fecha de venta",
-                "context": (
-                    "El usuario pregunta por la fecha de venta. "
-                    "Usa la tabla sales y su columna sale_date."
-                ),
-            },
-            {
-                "label": "Fecha de servicio realizado",
-                "context": (
-                    "El usuario pregunta por la fecha de un servicio realizado. "
-                    "Usa la tabla services y su columna service_date."
-                ),
-            },
-            {
-                "label": "Fecha de cita agendada",
-                "context": (
-                    "El usuario pregunta por la fecha de una cita de servicio. "
-                    "Usa la tabla service_appointments y su columna appointment_date."
-                ),
-            },
-        ],
-    },
-    {
         "id": "status_ambiguous",
         "triggers": [
             r"(?i)\bestatus\b",
@@ -1601,41 +1552,10 @@ _DISAMBIGUATION_RULES_VGD: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "date_ambiguous",
+        "id": "status_ambiguous",
         "triggers": _DISAMBIGUATION_RULES[1]["triggers"],
         "excludes": _DISAMBIGUATION_RULES[1]["excludes"],
         "prompt": _DISAMBIGUATION_RULES[1]["prompt"],
-        "options": [
-            {
-                "label": "Fecha de pedido u orden comercial",
-                "context": (
-                    "El usuario pregunta por la fecha de pedido u orden. "
-                    "Usa comissions.order_timestamp, orders u otras fechas del esquema VGD. "
-                    "No uses sale_date ni la tabla sales (no existe)."
-                ),
-            },
-            {
-                "label": "Fecha de servicio realizado",
-                "context": (
-                    "El usuario pregunta por la fecha de un servicio realizado. "
-                    "Usa la tabla services y las columnas de fecha del esquema. "
-                    "No uses service_appointments si no está en el esquema de referencia."
-                ),
-            },
-            {
-                "label": "Fecha de facturación",
-                "context": (
-                    "El usuario pregunta por fecha de factura. "
-                    "Usa invoices, comissions.invoice_data u order_timestamp según el esquema. No uses sales."
-                ),
-            },
-        ],
-    },
-    {
-        "id": "status_ambiguous",
-        "triggers": _DISAMBIGUATION_RULES[2]["triggers"],
-        "excludes": _DISAMBIGUATION_RULES[2]["excludes"],
-        "prompt": _DISAMBIGUATION_RULES[2]["prompt"],
         "options": [
             {
                 "label": "Estado geográfico del cliente",

@@ -153,6 +153,12 @@ Reglas obligatorias:
 9) LAG/LEAD/ROW_NUMBER en SELECT o CTE, no como JOIN directo a la función de ventana.
 10) Si el historial fija un VIN u otro literal, úsalo tal cual; no inventes subconsultas sustitutas.
 11) Preguntas de catálogo de agencias → tabla agencies, no customers (ver bloque «Catálogo de agencias» arriba).
+12) COMPRAS de vehículos: cuando el usuario pregunte por «compras», «ha comprado», «cada cuándo compra» u otra
+    variante de adquisición de unidades, usa EXCLUSIVAMENTE `h_invoices`. NO uses `h_orders` para compras;
+    `h_orders` es para pedidos/órdenes comerciales previas a la factura. Ejemplo correcto:
+    SELECT i.billing_date, i.vin FROM h_invoices i
+    JOIN h_customers c ON CAST(c.id AS TEXT) = i.nd_client_dms
+    WHERE c.bussines_name = 'NOMBRE' ORDER BY i.billing_date;
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -206,6 +212,11 @@ Reglas obligatorias:
 9) YEAR/MONTH/DAY: usa EXTRACT(YEAR FROM x), etc.
 10) Si la intención es listar o contar agencias (catálogo) y el SQL usó customers sin que el usuario pidiera «agencias con clientes» u operación similar, pasa a FROM agencies con "idAgency" y name según el esquema.
 11) Si el error menciona tablas sales o vehicles inexistentes: reemplaza sales→invoices (u orders/comissions), vehicles→inventory; JOIN agencies por "idAgency", no agencies.id = sales.customer_id; usa >= en fechas, no ≥.
+12) Si el SQL generado usó `h_orders` para responder una pregunta de «compras» de vehículos, reemplázalo
+    por `h_invoices`: las compras facturadas están en h_invoices, no en h_orders.
+13) Si el error es «operator does not exist: text = bigint» en un JOIN con nd_client_dms:
+    nd_client_dms es TEXT y h_customers.id es BIGINT; corrige el JOIN a:
+    CAST(c.id AS TEXT) = <tabla>.nd_client_dms
 """
 
 

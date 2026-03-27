@@ -80,6 +80,7 @@ H_VIEW_TABLE_COLUMN_FALLBACKS: dict[str, dict[str, tuple[str, ...]]] = {
         "customer_id": ("nd_client_dms",),
         "nd_client": ("nd_client_dms",),
         "order_date": ("delivery_date",),
+        "order_timestamp": ("delivery_date", "timestamp_dms", "timestamp"),
         "date": ("delivery_date",),
         "order_id": ("order_dms",),
         "status": ("status_description",),
@@ -435,6 +436,34 @@ def rewrite_postgresql_idagency_equality_cast(sql: str) -> str:
         return f"{left}::text = {right}::text"
 
     return pattern.sub(repl, sql)
+
+
+def rewrite_postgresql_nd_client_dms_cast(sql: str) -> str:
+    """
+    h_orders/h_invoices/h_services.nd_client_dms es TEXT pero h_customers.id es BIGINT.
+    Reescribe comparaciones nd_client_dms = <alias>.id (y la inversa) añadiendo
+    CAST(<alias>.id AS TEXT) para evitar 'operator does not exist: text = bigint'.
+    """
+    # Patrón: <alias>."nd_client_dms" = <alias>.id  o  <alias>.nd_client_dms = <alias>.id
+    # también el caso invertido: <alias>.id = <alias>.nd_client_dms
+    nd_expr = r'(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*(?:"nd_client_dms"|nd_client_dms))'
+    id_expr = r'([A-Za-z_][A-Za-z0-9_]*\s*\.\s*id)\b'
+
+    # nd_client_dms = alias.id  →  nd_client_dms = CAST(alias.id AS TEXT)
+    out = re.sub(
+        rf'({nd_expr})\s*=\s*{id_expr}(?!\s*::text)',
+        lambda m: f'{m.group(1)} = CAST({m.group(2)} AS TEXT)',
+        sql,
+        flags=re.IGNORECASE,
+    )
+    # alias.id = nd_client_dms  →  CAST(alias.id AS TEXT) = nd_client_dms
+    out = re.sub(
+        rf'{id_expr}(?!\s*::text)\s*=\s*({nd_expr})',
+        lambda m: f'CAST({m.group(1)} AS TEXT) = {m.group(2)}',
+        out,
+        flags=re.IGNORECASE,
+    )
+    return out
 
 
 def rewrite_postgresql_group_by_year_alias(sql: str) -> str:

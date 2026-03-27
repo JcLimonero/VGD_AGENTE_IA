@@ -23,6 +23,7 @@ def normalize_sql_for_dialect(sql: str, dialect_name: str) -> str:
         normalized = sql_rewrites.rewrite_postgresql_h_view_legacy_identifiers(normalized)
         normalized = sql_rewrites.rewrite_h_agencies_surrogate_id_in_joins(normalized)
         normalized = sql_rewrites.rewrite_postgresql_idagency_equality_cast(normalized)
+        normalized = sql_rewrites.rewrite_postgresql_nd_client_dms_cast(normalized)
         normalized = sql_rewrites.rewrite_postgresql_group_by_year_alias(normalized)
         normalized = sql_rewrites.rewrite_postgresql_count_empty_parentheses(normalized)
         normalized = sql_rewrites.rewrite_postgresql_mysql_style_date_parts(normalized)
