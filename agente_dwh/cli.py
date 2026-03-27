@@ -4,10 +4,10 @@ import argparse
 import json
 import sys
 
-from .agent import DwhAgent, resolve_llm_profile
+from .agent import DwhAgent
+from .app_services import build_agent_service
 from .config import ConfigError, load_settings
-from .dwh import DwhClient
-from .llm_local import LocalOllamaClient
+from .error_subagent import log_error_and_run_subagent
 from .observability import get_recent_alerts
 
 
@@ -56,32 +56,34 @@ def main() -> None:
         settings = load_settings()
         if args.limite <= 0:
             raise ValueError("--limite debe ser mayor que 0.")
-        dwh = DwhClient.from_url(
-            settings.dwh_url,
-            default_limit=min(args.limite, settings.max_rows),
+        schema_hint = _load_schema_hint(settings.schema_hint_file)
+        agent = build_agent_service(
+            dwh_url=settings.dwh_url,
+            llm_endpoint=settings.llm_endpoint,
+            llm_model=settings.llm_model,
+            row_limit=min(args.limite, settings.max_rows),
+            llm_timeout_seconds=settings.llm_timeout_seconds,
+            schema_hint=schema_hint,
             cache_ttl_seconds=settings.cache_ttl_seconds,
             cache_max_entries=settings.cache_max_entries,
-        )
-        llm = LocalOllamaClient(
-            base_url=settings.llm_endpoint,
-            model_name=settings.llm_model,
-            timeout_seconds=settings.llm_timeout_seconds,
-            temperature=settings.llm_temperature,
-        )
-        schema_hint = _load_schema_hint(settings.schema_hint_file)
-        agent = DwhAgent(
-            dwh_client=dwh,
-            llm_client=llm,
-            schema_hint=schema_hint,
-            llm_profile=resolve_llm_profile(
-                settings.schema_hint_file, dwh_url=settings.dwh_url
-            ),
+            llm_temperature=settings.llm_temperature,
+            schema_hint_file=settings.schema_hint_file,
         )
         result = agent.answer(question=question)
     except ConfigError as exc:
+        log_error_and_run_subagent(
+            source="cli_config",
+            message=str(exc),
+            context={"question": question},
+        )
         print(f"Error de configuración: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     except Exception as exc:  # noqa: BLE001
+        log_error_and_run_subagent(
+            source="cli_runtime",
+            message=str(exc),
+            context={"question": question},
+        )
         print(f"Error ejecutando el agente: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
@@ -90,7 +92,7 @@ def main() -> None:
             "pregunta": result.question,
             "sql": result.generated_sql,
             "rows": result.rows,
-            "cache": dwh.get_cache_stats(),
+            "cache": agent._dwh.get_cache_stats(),  # noqa: SLF001
         }
         alerts = get_recent_alerts(limit=5)
         if alerts:
@@ -116,7 +118,7 @@ def main() -> None:
             print(f"{idx}. {row}")
     print()
     print("=== Cache ===")
-    print(dwh.get_cache_stats())
+    print(agent._dwh.get_cache_stats())  # noqa: SLF001
 
 
 if __name__ == "__main__":

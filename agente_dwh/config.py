@@ -121,6 +121,9 @@ class Config:
     llm_temperature: float = 0.2
     cache_ttl_seconds: int = 120
     cache_max_entries: int = 500
+    cache_backend: str = "local"
+    redis_url: str = ""
+    cache_redis_namespace: str = "agente_dwh:sql"
     schema_hint_file: str = ""
 
     @staticmethod
@@ -141,6 +144,9 @@ class Config:
         timeout_raw = os.getenv("LLM_TIMEOUT_SECONDS", "180").strip()
         cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "120").strip()
         cache_max_entries_raw = os.getenv("CACHE_MAX_ENTRIES", "500").strip()
+        cache_backend = os.getenv("CACHE_BACKEND", "local").strip().lower()
+        redis_url = os.getenv("REDIS_URL", "").strip()
+        cache_redis_namespace = os.getenv("CACHE_REDIS_NAMESPACE", "agente_dwh:sql").strip()
         schema_hint_file = os.getenv("SCHEMA_HINT_FILE", "").strip()
 
         try:
@@ -177,6 +183,12 @@ class Config:
             raise ConfigError("CACHE_MAX_ENTRIES debe ser un entero valido.") from exc
         if cache_max_entries <= 0:
             raise ConfigError("CACHE_MAX_ENTRIES debe ser mayor que 0.")
+        if cache_backend not in ("local", "none", "off", "disabled", "redis", "distributed"):
+            raise ConfigError(
+                "CACHE_BACKEND debe ser local, redis o none."
+            )
+        if cache_backend in ("redis", "distributed") and not redis_url:
+            raise ConfigError("CACHE_BACKEND=redis requiere REDIS_URL.")
 
         return Config(
             dwh_url=dwh_url,
@@ -187,6 +199,9 @@ class Config:
             llm_temperature=llm_temperature,
             cache_ttl_seconds=cache_ttl_seconds,
             cache_max_entries=cache_max_entries,
+            cache_backend=cache_backend,
+            redis_url=redis_url,
+            cache_redis_namespace=cache_redis_namespace or "agente_dwh:sql",
             schema_hint_file=schema_hint_file,
         )
 

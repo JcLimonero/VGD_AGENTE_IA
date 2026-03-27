@@ -1,6 +1,550 @@
-"""Cliente de acceso al DWH."""
+"""Compatibilidad pública de DWH.
+
+Este módulo mantiene la ruta histórica `agente_dwh.dwh.DwhClient`
+y delega en la implementación modular.
+"""
 
 from __future__ import annotations
+
+from .dwh_client import DwhClient
+
+__all__ = ["DwhClient"]
+"""Compatibilidad: reexporta DwhClient modularizado."""
+
+from .dwh_client import DwhClient
+
+__all__ = ["DwhClient"]
+"""Cliente de acceso al DWH."""
+
+# from __future__ import annotations
+
+from dataclasses import dataclass
+import time
+from typing import Any
+
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+
+from . import sql_rewrites
+from .cache import QueryCacheBackend, build_query_cache
+from .db_engine import create_dwh_engine
+from .dialects import normalize_sql_for_dialect, rewrite_postgresql_undefined_column_retry
+from .error_subagent import log_error_and_run_subagent
+from .observability import record_query_event
+from .query_executor import QueryExecutor, inject_limit_if_missing
+from .sql_guard import (
+    validate_read_only_sql,
+    validate_vgd_dwh_sql,
+    vgd_execution_guard_enabled,
+)
+
+
+@dataclass
+class DwhClient:
+    """Cliente para ejecutar consultas contra el DWH."""
+
+    engine: Engine
+    default_limit: int = 200
+    cache_ttl_seconds: int = 120
+    cache_max_entries: int = 500
+    cache_backend: str = "local"
+    cache_redis_url: str = ""
+    cache_redis_namespace: str = "agente_dwh:sql"
+
+    def __post_init__(self) -> None:
+        self._cache: QueryCacheBackend = build_query_cache(
+            backend=self.cache_backend,
+            ttl_seconds=self.cache_ttl_seconds,
+            max_entries=self.cache_max_entries,
+            redis_url=self.cache_redis_url,
+            redis_namespace=self.cache_redis_namespace,
+        )
+        self._executor = QueryExecutor(self.engine)
+        self._last_execution_info: dict[str, Any] = {}
+
+    @classmethod
+    def from_url(
+        cls,
+        database_url: str,
+        default_limit: int = 200,
+        cache_ttl_seconds: int = 120,
+        cache_max_entries: int = 500,
+        *,
+        cache_backend: str = "local",
+        cache_redis_url: str = "",
+        cache_redis_namespace: str = "agente_dwh:sql",
+    ) -> "DwhClient":
+        engine = create_dwh_engine(database_url)
+        return cls(
+            engine=engine,
+            default_limit=default_limit,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cache_max_entries=cache_max_entries,
+            cache_backend=cache_backend,
+            cache_redis_url=cache_redis_url,
+            cache_redis_namespace=cache_redis_namespace,
+        )
+
+    @property
+    def dialect_name(self) -> str:
+        return (self.engine.dialect.name or "").lower()
+
+    def execute_select(self, sql: str) -> list[dict[str, Any]]:
+        stripped = sql.strip()
+        validated = validate_read_only_sql(stripped)
+        start = time.perf_counter()
+        self._last_execution_info = {
+            "auto_retry_undefined_column": False,
+            "retry_applied": False,
+        }
+
+        normalized_sql = self._normalize_sql_for_dialect(validated)
+        if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+            database_url=str(self.engine.url)
+        ):
+            validate_vgd_dwh_sql(normalized_sql)
+
+        sql_with_limit = self._inject_limit_if_missing(normalized_sql)
+        cached_rows = self._get_cached_rows(sql_with_limit)
+        if cached_rows is not None:
+            self._last_execution_info = {
+                "auto_retry_undefined_column": False,
+                "retry_applied": False,
+                "cached": True,
+            }
+            record_query_event(
+                source="dwh",
+                success=True,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=len(cached_rows),
+                cached=True,
+            )
+            return cached_rows
+
+        try:
+            rows = self._executor.run_select(sql_with_limit)
+            self._set_cache_rows(sql_with_limit, rows)
+            self._last_execution_info = {
+                "auto_retry_undefined_column": False,
+                "retry_applied": False,
+                "cached": False,
+            }
+            record_query_event(
+                source="dwh",
+                success=True,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=len(rows),
+                cached=False,
+            )
+            return rows
+        except SQLAlchemyError as exc:
+            retry_sql = None
+            retry_exc: SQLAlchemyError | None = None
+            if self.dialect_name == "postgresql":
+                retry_sql = self._rewrite_postgresql_undefined_column_retry(
+                    sql_with_limit, str(exc)
+                )
+            if retry_sql and retry_sql != sql_with_limit:
+                try:
+                    if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+                        database_url=str(self.engine.url)
+                    ):
+                        validate_vgd_dwh_sql(retry_sql)
+                    rows = self._executor.run_select(retry_sql)
+                    self._set_cache_rows(sql_with_limit, rows)
+                    self._set_cache_rows(retry_sql, rows)
+                    self._last_execution_info = {
+                        "auto_retry_undefined_column": True,
+                        "retry_applied": True,
+                        "cached": False,
+                        "reason": "undefined_column",
+                    }
+                    record_query_event(
+                        source="dwh",
+                        success=True,
+                        duration_ms=(time.perf_counter() - start) * 1000.0,
+                        row_count=len(rows),
+                        cached=False,
+                        message="auto_retry_undefined_column",
+                    )
+                    return rows
+                except SQLAlchemyError as rex:
+                    retry_exc = rex
+
+            self._last_execution_info = {
+                "auto_retry_undefined_column": bool(retry_sql),
+                "retry_applied": False,
+                "cached": False,
+                "failed": True,
+            }
+            record_query_event(
+                source="dwh",
+                success=False,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=0,
+                cached=False,
+                message=str(retry_exc or exc),
+            )
+            try:
+                log_error_and_run_subagent(
+                    source="dwh_execute_select",
+                    message=str(retry_exc or exc),
+                    context={"sql": sql_with_limit, "dialect": self.dialect_name},
+                )
+            except Exception:
+                pass
+            if retry_exc is not None:
+                raise RuntimeError(f"Error ejecutando consulta en DWH: {retry_exc}") from retry_exc
+            raise RuntimeError(f"Error ejecutando consulta en DWH: {exc}") from exc
+
+    def run_query(self, sql: str) -> list[dict[str, Any]]:
+        return self.execute_select(sql)
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        base = self._cache.stats()
+        base.update(
+            {
+                "ttl_seconds": self.cache_ttl_seconds,
+                "max_entries": self.cache_max_entries,
+                "backend": self._cache.backend_name,
+            }
+        )
+        return base
+
+    def get_last_execution_info(self) -> dict[str, Any]:
+        return dict(self._last_execution_info)
+
+    def _get_cached_rows(self, sql: str) -> list[dict[str, Any]] | None:
+        return self._cache.get(sql)
+
+    def _set_cache_rows(self, sql: str, rows: list[dict[str, Any]]) -> None:
+        self._cache.set(sql, rows)
+
+    def _inject_limit_if_missing(self, sql: str) -> str:
+        return inject_limit_if_missing(sql, self.default_limit)
+
+    def _normalize_sql_for_dialect(self, sql: str) -> str:
+        return normalize_sql_for_dialect(sql, self.dialect_name)
+
+    # Wrappers de compatibilidad para tests/extensiones existentes.
+    def _quote_postgresql_mixed_case_identifiers(self, sql: str) -> str:
+        return sql_rewrites.quote_postgresql_mixed_case_identifiers(sql)
+
+    def _rewrite_postgresql_h_view_legacy_identifiers(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_h_view_legacy_identifiers(sql)
+
+    def _rewrite_postgresql_undefined_column_retry(self, sql: str, err: str) -> str | None:
+        return rewrite_postgresql_undefined_column_retry(sql, err)
+
+    def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_idagency_equality_cast(sql)
+
+    def _rewrite_postgresql_group_by_year_alias(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_group_by_year_alias(sql)
+
+    def _normalize_sqlite_sql(self, sql: str) -> str:
+        return sql_rewrites.normalize_sqlite_sql(sql)
+
+    def _rewrite_interval_arithmetic(self, sql: str) -> str:
+        return sql_rewrites.rewrite_interval_arithmetic(sql)
+
+    def _rewrite_window_avg_misuse(self, sql: str) -> str:
+        return sql_rewrites.rewrite_window_avg_misuse(sql)
+
+    def _rewrite_sales_status_aliases(self, sql: str) -> str:
+        return sql_rewrites.rewrite_sales_status_aliases(sql)
+
+    def _rewrite_service_appointments_aliases(self, sql: str) -> str:
+        return sql_rewrites.rewrite_service_appointments_aliases(sql)
+
+    def _rewrite_insurance_policies_policy_status(self, sql: str) -> str:
+        return sql_rewrites.rewrite_insurance_policies_policy_status(sql)
+
+    @staticmethod
+    def _parse_round_call_args(sql: str, open_paren_idx: int) -> tuple[str, str | None, int] | None:
+        return sql_rewrites.parse_round_call_args(sql, open_paren_idx)
+
+    def _rewrite_postgresql_round_two_arg(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_round_two_arg(sql)
+
+    def _rewrite_postgresql_extract_epoch_from_date_subtraction(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_extract_epoch_from_date_subtraction(sql)
+
+    def _rewrite_postgresql_count_empty_parentheses(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_count_empty_parentheses(sql)
+
+    def _rewrite_postgresql_mysql_style_date_parts(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_mysql_style_date_parts(sql)
+
+    def _rewrite_postgresql_invalid_interval_literal_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_invalid_interval_literal_cast(sql)
+"""Cliente de acceso al DWH."""
+
+# from __future__ import annotations
+
+from dataclasses import dataclass
+import time
+from typing import Any
+
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+
+from .cache import QueryCacheBackend, build_query_cache
+from .db_engine import create_dwh_engine
+from .dialects import normalize_sql_for_dialect, rewrite_postgresql_undefined_column_retry
+from .error_subagent import log_error_and_run_subagent
+from .observability import record_query_event
+from .query_executor import QueryExecutor, inject_limit_if_missing
+from .sql_guard import (
+    validate_read_only_sql,
+    validate_vgd_dwh_sql,
+    vgd_execution_guard_enabled,
+)
+from . import sql_rewrites
+
+
+@dataclass
+class DwhClient:
+    """Cliente para ejecutar consultas contra el DWH."""
+
+    engine: Engine
+    default_limit: int = 200
+    cache_ttl_seconds: int = 120
+    cache_max_entries: int = 500
+    cache_backend: str = "local"
+    cache_redis_url: str = ""
+    cache_redis_namespace: str = "agente_dwh:sql"
+
+    def __post_init__(self) -> None:
+        self._cache: QueryCacheBackend = build_query_cache(
+            backend=self.cache_backend,
+            ttl_seconds=self.cache_ttl_seconds,
+            max_entries=self.cache_max_entries,
+            redis_url=self.cache_redis_url,
+            redis_namespace=self.cache_redis_namespace,
+        )
+        self._executor = QueryExecutor(self.engine)
+        self._last_execution_info: dict[str, Any] = {}
+
+    @classmethod
+    def from_url(
+        cls,
+        database_url: str,
+        default_limit: int = 200,
+        cache_ttl_seconds: int = 120,
+        cache_max_entries: int = 500,
+        *,
+        cache_backend: str = "local",
+        cache_redis_url: str = "",
+        cache_redis_namespace: str = "agente_dwh:sql",
+    ) -> "DwhClient":
+        engine = create_dwh_engine(database_url)
+        return cls(
+            engine=engine,
+            default_limit=default_limit,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cache_max_entries=cache_max_entries,
+            cache_backend=cache_backend,
+            cache_redis_url=cache_redis_url,
+            cache_redis_namespace=cache_redis_namespace,
+        )
+
+    @property
+    def dialect_name(self) -> str:
+        return (self.engine.dialect.name or "").lower()
+
+    def execute_select(self, sql: str) -> list[dict[str, Any]]:
+        stripped = sql.strip()
+        validated = validate_read_only_sql(stripped)
+        start = time.perf_counter()
+        self._last_execution_info = {
+            "auto_retry_undefined_column": False,
+            "retry_applied": False,
+        }
+
+        normalized_sql = self._normalize_sql_for_dialect(validated)
+        if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+            database_url=str(self.engine.url)
+        ):
+            validate_vgd_dwh_sql(normalized_sql)
+
+        sql_with_limit = self._inject_limit_if_missing(normalized_sql)
+        cached_rows = self._get_cached_rows(sql_with_limit)
+        if cached_rows is not None:
+            self._last_execution_info = {
+                "auto_retry_undefined_column": False,
+                "retry_applied": False,
+                "cached": True,
+            }
+            record_query_event(
+                source="dwh",
+                success=True,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=len(cached_rows),
+                cached=True,
+            )
+            return cached_rows
+
+        try:
+            rows = self._executor.run_select(sql_with_limit)
+            self._set_cache_rows(sql_with_limit, rows)
+            self._last_execution_info = {
+                "auto_retry_undefined_column": False,
+                "retry_applied": False,
+                "cached": False,
+            }
+            record_query_event(
+                source="dwh",
+                success=True,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=len(rows),
+                cached=False,
+            )
+            return rows
+        except SQLAlchemyError as exc:
+            retry_sql = None
+            retry_exc: SQLAlchemyError | None = None
+            if self.dialect_name == "postgresql":
+                retry_sql = self._rewrite_postgresql_undefined_column_retry(
+                    sql_with_limit, str(exc)
+                )
+            if retry_sql and retry_sql != sql_with_limit:
+                try:
+                    if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+                        database_url=str(self.engine.url)
+                    ):
+                        validate_vgd_dwh_sql(retry_sql)
+                    rows = self._executor.run_select(retry_sql)
+                    self._set_cache_rows(sql_with_limit, rows)
+                    self._set_cache_rows(retry_sql, rows)
+                    self._last_execution_info = {
+                        "auto_retry_undefined_column": True,
+                        "retry_applied": True,
+                        "cached": False,
+                        "reason": "undefined_column",
+                    }
+                    record_query_event(
+                        source="dwh",
+                        success=True,
+                        duration_ms=(time.perf_counter() - start) * 1000.0,
+                        row_count=len(rows),
+                        cached=False,
+                        message="auto_retry_undefined_column",
+                    )
+                    return rows
+                except SQLAlchemyError as rex:
+                    retry_exc = rex
+
+            self._last_execution_info = {
+                "auto_retry_undefined_column": bool(retry_sql),
+                "retry_applied": False,
+                "cached": False,
+                "failed": True,
+            }
+            record_query_event(
+                source="dwh",
+                success=False,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                row_count=0,
+                cached=False,
+                message=str(retry_exc or exc),
+            )
+            try:
+                log_error_and_run_subagent(
+                    source="dwh_execute_select",
+                    message=str(retry_exc or exc),
+                    context={"sql": sql_with_limit, "dialect": self.dialect_name},
+                )
+            except Exception:
+                pass
+            if retry_exc is not None:
+                raise RuntimeError(f"Error ejecutando consulta en DWH: {retry_exc}") from retry_exc
+            raise RuntimeError(f"Error ejecutando consulta en DWH: {exc}") from exc
+
+    def run_query(self, sql: str) -> list[dict[str, Any]]:
+        return self.execute_select(sql)
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        base = self._cache.stats()
+        base.update(
+            {
+                "ttl_seconds": self.cache_ttl_seconds,
+                "max_entries": self.cache_max_entries,
+                "backend": self._cache.backend_name,
+            }
+        )
+        return base
+
+    def get_last_execution_info(self) -> dict[str, Any]:
+        return dict(self._last_execution_info)
+
+    def _get_cached_rows(self, sql: str) -> list[dict[str, Any]] | None:
+        return self._cache.get(sql)
+
+    def _set_cache_rows(self, sql: str, rows: list[dict[str, Any]]) -> None:
+        self._cache.set(sql, rows)
+
+    def _inject_limit_if_missing(self, sql: str) -> str:
+        return inject_limit_if_missing(sql, self.default_limit)
+
+    def _normalize_sql_for_dialect(self, sql: str) -> str:
+        return normalize_sql_for_dialect(sql, self.dialect_name)
+
+    # Wrappers de compatibilidad para tests y extensiones existentes.
+    def _quote_postgresql_mixed_case_identifiers(self, sql: str) -> str:
+        return sql_rewrites.quote_postgresql_mixed_case_identifiers(sql)
+
+    def _rewrite_postgresql_h_view_legacy_identifiers(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_h_view_legacy_identifiers(sql)
+
+    def _rewrite_postgresql_undefined_column_retry(self, sql: str, err: str) -> str | None:
+        return rewrite_postgresql_undefined_column_retry(sql, err)
+
+    def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_idagency_equality_cast(sql)
+
+    def _rewrite_postgresql_group_by_year_alias(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_group_by_year_alias(sql)
+
+    def _normalize_sqlite_sql(self, sql: str) -> str:
+        return sql_rewrites.normalize_sqlite_sql(sql)
+
+    def _rewrite_interval_arithmetic(self, sql: str) -> str:
+        return sql_rewrites.rewrite_interval_arithmetic(sql)
+
+    def _rewrite_window_avg_misuse(self, sql: str) -> str:
+        return sql_rewrites.rewrite_window_avg_misuse(sql)
+
+    def _rewrite_sales_status_aliases(self, sql: str) -> str:
+        return sql_rewrites.rewrite_sales_status_aliases(sql)
+
+    def _rewrite_service_appointments_aliases(self, sql: str) -> str:
+        return sql_rewrites.rewrite_service_appointments_aliases(sql)
+
+    def _rewrite_insurance_policies_policy_status(self, sql: str) -> str:
+        return sql_rewrites.rewrite_insurance_policies_policy_status(sql)
+
+    @staticmethod
+    def _parse_round_call_args(sql: str, open_paren_idx: int) -> tuple[str, str | None, int] | None:
+        return sql_rewrites.parse_round_call_args(sql, open_paren_idx)
+
+    def _rewrite_postgresql_round_two_arg(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_round_two_arg(sql)
+
+    def _rewrite_postgresql_extract_epoch_from_date_subtraction(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_extract_epoch_from_date_subtraction(sql)
+
+    def _rewrite_postgresql_count_empty_parentheses(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_count_empty_parentheses(sql)
+
+    def _rewrite_postgresql_mysql_style_date_parts(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_mysql_style_date_parts(sql)
+
+    def _rewrite_postgresql_invalid_interval_literal_cast(self, sql: str) -> str:
+        return sql_rewrites.rewrite_postgresql_invalid_interval_literal_cast(sql)
+"""Cliente de acceso al DWH."""
+
+# from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -12,6 +556,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from .error_subagent import log_error_and_run_subagent
 from .observability import record_query_event
 from .sql_guard import (
     validate_read_only_sql,
@@ -48,6 +593,54 @@ _PG_MIXED_CASE_IDENTIFIERS: tuple[str, ...] = (
 )
 
 
+def _to_snake_case(identifier: str) -> str:
+    s = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", identifier)
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    s = re.sub(r"[^A-Za-z0-9_]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_").lower()
+    return s or identifier.lower()
+
+
+_HOMOLOGATED_LEGACY_IDENTIFIER_MAP: dict[str, str] = {
+    **{name: _to_snake_case(name) for name in _PG_MIXED_CASE_IDENTIFIERS},
+    "Id": "id",
+}
+
+_H_VIEW_TABLE_COLUMN_FALLBACKS: dict[str, dict[str, tuple[str, ...]]] = {
+    "h_agencies": {
+        "agency_name": ("name",),
+        "nombre_agencia": ("name",),
+        "agencia_nombre": ("name",),
+        "branch_name": ("name",),
+        "dealer_name": ("name",),
+    },
+    "h_customers": {
+        "created_at": ("timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp", "timestamp_dms"),
+    },
+    "h_orders": {
+        "created_at": ("delivery_date", "timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp", "timestamp_dms"),
+    },
+    "h_invoices": {
+        "created_at": ("billing_date", "delivery_date", "timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp", "timestamp_dms"),
+    },
+    "h_services": {
+        "created_at": ("service_date", "timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp", "timestamp_dms"),
+    },
+    "h_inventory": {
+        "created_at": ("timestamp_created", "timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp_updated", "timestamp", "timestamp_dms"),
+    },
+    "h_customer_vehicle": {
+        "created_at": ("timestamp_dms", "timestamp"),
+        "updated_at": ("timestamp", "timestamp_dms"),
+    },
+}
+
+
 @dataclass
 class DwhClient:
     """Cliente para ejecutar consultas contra el DWH."""
@@ -61,6 +654,7 @@ class DwhClient:
         self._cache: OrderedDict[str, tuple[float, list[dict[str, Any]]]] = OrderedDict()
         self._cache_hits = 0
         self._cache_misses = 0
+        self._last_execution_info: dict[str, Any] = {}
 
     @classmethod
     def from_url(
@@ -88,6 +682,10 @@ class DwhClient:
         stripped = sql.strip()
         validated = validate_read_only_sql(stripped)
         start = time.perf_counter()
+        self._last_execution_info = {
+            "auto_retry_undefined_column": False,
+            "retry_applied": False,
+        }
         normalized_sql = self._normalize_sql_for_dialect(validated)
         if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
             database_url=str(self.engine.url)
@@ -97,6 +695,11 @@ class DwhClient:
         cached_rows = self._get_cached_rows(sql_with_limit)
         if cached_rows is not None:
             self._cache_hits += 1
+            self._last_execution_info = {
+                "auto_retry_undefined_column": False,
+                "retry_applied": False,
+                "cached": True,
+            }
             record_query_event(
                 source="dwh",
                 success=True,
@@ -112,6 +715,11 @@ class DwhClient:
                 result = connection.execute(text(sql_with_limit))
                 rows = [dict(row._mapping) for row in result.fetchall()]
                 self._set_cache_rows(sql_with_limit, rows)
+                self._last_execution_info = {
+                    "auto_retry_undefined_column": False,
+                    "retry_applied": False,
+                    "cached": False,
+                }
                 record_query_event(
                     source="dwh",
                     success=True,
@@ -121,14 +729,68 @@ class DwhClient:
                 )
                 return rows
         except SQLAlchemyError as exc:
+            retry_sql = None
+            retry_exc: SQLAlchemyError | None = None
+            if self.dialect_name == "postgresql":
+                retry_sql = self._rewrite_postgresql_undefined_column_retry(sql_with_limit, str(exc))
+            if retry_sql and retry_sql != sql_with_limit:
+                try:
+                    if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
+                        database_url=str(self.engine.url)
+                    ):
+                        validate_vgd_dwh_sql(retry_sql)
+                    with self.engine.connect() as connection:
+                        result = connection.execute(text(retry_sql))
+                        rows = [dict(row._mapping) for row in result.fetchall()]
+                        # Cachea con ambas llaves para evitar repetir el fallo original.
+                        self._set_cache_rows(sql_with_limit, rows)
+                        self._set_cache_rows(retry_sql, rows)
+                        self._last_execution_info = {
+                            "auto_retry_undefined_column": True,
+                            "retry_applied": True,
+                            "cached": False,
+                            "reason": "undefined_column",
+                        }
+                        record_query_event(
+                            source="dwh",
+                            success=True,
+                            duration_ms=(time.perf_counter() - start) * 1000.0,
+                            row_count=len(rows),
+                            cached=False,
+                            message="auto_retry_undefined_column",
+                        )
+                        return rows
+                except SQLAlchemyError as rex:
+                    retry_exc = rex
+
+            self._last_execution_info = {
+                "auto_retry_undefined_column": bool(retry_sql),
+                "retry_applied": False,
+                "cached": False,
+                "failed": True,
+            }
             record_query_event(
                 source="dwh",
                 success=False,
                 duration_ms=(time.perf_counter() - start) * 1000.0,
                 row_count=0,
                 cached=False,
-                message=str(exc),
+                message=str(retry_exc or exc),
             )
+            try:
+                log_error_and_run_subagent(
+                    source="dwh_execute_select",
+                    message=str(retry_exc or exc),
+                    context={
+                        "sql": sql_with_limit,
+                        "dialect": self.dialect_name,
+                    },
+                )
+            except Exception:
+                # El registro/corrección nunca debe ocultar el error original del DWH.
+                pass
+            if retry_exc is not None:
+                raise RuntimeError(f"Error ejecutando consulta en DWH: {retry_exc}") from retry_exc
             raise RuntimeError(f"Error ejecutando consulta en DWH: {exc}") from exc
 
     def run_query(self, sql: str) -> list[dict[str, Any]]:
@@ -146,6 +808,9 @@ class DwhClient:
             "ttl_seconds": self.cache_ttl_seconds,
             "max_entries": self.cache_max_entries,
         }
+
+    def get_last_execution_info(self) -> dict[str, Any]:
+        return dict(self._last_execution_info)
 
     def _get_cached_rows(self, sql: str) -> list[dict[str, Any]] | None:
         if self.cache_ttl_seconds <= 0:
@@ -191,6 +856,7 @@ class DwhClient:
             normalized = self._normalize_sqlite_sql(normalized)
         elif self.dialect_name == "postgresql":
             normalized = self._quote_postgresql_mixed_case_identifiers(normalized)
+            normalized = self._rewrite_postgresql_h_view_legacy_identifiers(normalized)
             normalized = self._rewrite_postgresql_idagency_equality_cast(normalized)
             normalized = self._rewrite_postgresql_group_by_year_alias(normalized)
             normalized = self._rewrite_postgresql_count_empty_parentheses(normalized)
@@ -262,6 +928,156 @@ class DwhClient:
                 continue
 
         return "".join(out)
+
+    def _rewrite_postgresql_h_view_legacy_identifiers(self, sql: str) -> str:
+        """
+        Si la consulta usa vistas homologadas h_*, traduce identificadores legacy
+        camelCase/PascalCase a snake_case para evitar errores de columnas inexistentes.
+        """
+        if not re.search(
+            r'(?is)\b(?:FROM|JOIN)\s+(?:"?[A-Za-z_][A-Za-z0-9_]*"?\.)?"?h_[A-Za-z_][A-Za-z0-9_]*"?\b',
+            sql,
+        ):
+            return sql
+
+        out = sql
+        # 1) Traducciones explícitas conocidas.
+        for legacy, homologated in _HOMOLOGATED_LEGACY_IDENTIFIER_MAP.items():
+            out = out.replace(f'"{legacy}"', f'"{homologated}"')
+
+        # 2) Cualquier identificador quoted CamelCase/PascalCase -> snake_case.
+        #    Esto captura casos no contemplados en el mapa estático.
+        out = re.sub(
+            r'"(?P<ident>[A-Za-z_][A-Za-z0-9_]*)"',
+            lambda m: (
+                f'"{_to_snake_case(m.group("ident"))}"'
+                if re.search(r"[a-z]", m.group("ident"))
+                and re.search(r"[A-Z]", m.group("ident"))
+                else m.group(0)
+            ),
+            out,
+        )
+
+        # 3) Referencias alias.columna en camelCase sin comillas -> alias.snake_case.
+        out = re.sub(
+            r'(?P<prefix>\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)(?P<ident>[A-Za-z_][A-Za-z0-9_]*)\b',
+            lambda m: (
+                f'{m.group("prefix")}{_to_snake_case(m.group("ident"))}'
+                if re.search(r"[a-z]", m.group("ident"))
+                and re.search(r"[A-Z]", m.group("ident"))
+                else m.group(0)
+            ),
+            out,
+        )
+        return out
+
+    def _rewrite_postgresql_undefined_column_retry(self, sql: str, err: str) -> str | None:
+        """
+        Reescribe un SQL fallido por UndefinedColumn para un único reintento automático.
+        Se aplica solo cuando el query usa vistas homologadas h_*.
+        """
+        if not re.search(
+            r'(?is)\b(?:FROM|JOIN)\s+(?:"?[A-Za-z_][A-Za-z0-9_]*"?\.)?"?h_[A-Za-z_][A-Za-z0-9_]*"?\b',
+            sql,
+        ):
+            return None
+        m = re.search(
+            r'(?is)\bcolumn\s+(?P<col>(?:"?[\w]+"?)(?:\.(?:"?[\w]+"?))?)\s+does not exist\b',
+            err,
+        )
+        if not m:
+            return None
+
+        col_ref = m.group("col").strip()
+        alias_to_table: dict[str, str] = {}
+        for mt in re.finditer(
+            r'(?is)\b(?:FROM|JOIN)\s+(?:"?(?P<table>h_[A-Za-z_][A-Za-z0-9_]*)"?)(?:\s+(?:AS\s+)?(?!(?:ON|USING|WHERE|GROUP|ORDER|LIMIT|JOIN|LEFT|RIGHT|FULL|INNER|CROSS)\b)(?P<alias>[A-Za-z_][A-Za-z0-9_]*))?',
+            sql,
+        ):
+            table = (mt.group("table") or "").lower()
+            alias_raw = (mt.group("alias") or "").strip('"').lower()
+            alias = table if not alias_raw else alias_raw
+            if table:
+                alias_to_table[alias] = table
+
+        parts = [p.strip() for p in col_ref.split(".")]
+        if not parts:
+            return None
+        legacy_ident = parts[-1].strip('"')
+        snake_ident = _to_snake_case(legacy_ident)
+
+        out = sql
+        replaced = False
+        if len(parts) == 2:
+            alias = parts[0].strip('"')
+            if legacy_ident != snake_ident:
+                next_out = re.sub(
+                    rf'(?i)\b{re.escape(alias)}\s*\.\s*"{re.escape(legacy_ident)}"\b',
+                    f'{alias}."{snake_ident}"',
+                    out,
+                )
+                next_out = re.sub(
+                    rf'(?i)\b{re.escape(alias)}\s*\.\s*{re.escape(legacy_ident)}\b',
+                    f'{alias}."{snake_ident}"',
+                    next_out,
+                )
+                replaced = replaced or (next_out != out)
+                out = next_out
+            if not replaced:
+                table = alias_to_table.get(alias.lower())
+                for cand in _H_VIEW_TABLE_COLUMN_FALLBACKS.get(table or "", {}).get(
+                    legacy_ident.lower(), ()
+                ):
+                    next_out = re.sub(
+                        rf'(?i)\b{re.escape(alias)}\s*\.\s*"{re.escape(legacy_ident)}"\b',
+                        f'{alias}."{cand}"',
+                        out,
+                    )
+                    next_out = re.sub(
+                        rf'(?i)\b{re.escape(alias)}\s*\.\s*{re.escape(legacy_ident)}\b',
+                        f'{alias}."{cand}"',
+                        next_out,
+                    )
+                    if next_out != out:
+                        out = next_out
+                        replaced = True
+                        break
+        else:
+            if legacy_ident != snake_ident:
+                next_out = re.sub(
+                    rf'(?i)"{re.escape(legacy_ident)}"',
+                    f'"{snake_ident}"',
+                    out,
+                )
+                next_out = re.sub(
+                    rf'(?i)\b{re.escape(legacy_ident)}\b',
+                    f'"{snake_ident}"',
+                    next_out,
+                )
+                replaced = replaced or (next_out != out)
+                out = next_out
+            if not replaced and len(alias_to_table) == 1:
+                only_table = next(iter(alias_to_table.values()))
+                for cand in _H_VIEW_TABLE_COLUMN_FALLBACKS.get(only_table, {}).get(
+                    legacy_ident.lower(), ()
+                ):
+                    next_out = re.sub(
+                        rf'(?i)"{re.escape(legacy_ident)}"',
+                        f'"{cand}"',
+                        out,
+                    )
+                    next_out = re.sub(
+                        rf'(?i)\b{re.escape(legacy_ident)}\b',
+                        f'"{cand}"',
+                        next_out,
+                    )
+                    if next_out != out:
+                        out = next_out
+                        replaced = True
+                        break
+
+        out = self._rewrite_postgresql_h_view_legacy_identifiers(out)
+        return out if out != sql else None
 
     def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
         """
@@ -695,4 +1511,8 @@ class DwhClient:
                 flags=re.IGNORECASE,
             )
         return out
+
+
+# Reexport final para asegurar la implementación modular.
+from .dwh_client import DwhClient as DwhClient
 

@@ -71,3 +71,5 @@ Thumbs.db
 
 # --- Proyecto ---
 .local/
+logerrores/*.json
+logerrores/procesados/*.json

@@ -104,6 +104,13 @@ agente-dwh --json "ventas por región en 2025"
   - Alertas de error y de latencia alta.
   - Panel de observabilidad en la UI web.
 
+- **Subagente de corrección por errores**:
+  - Cada error crea un archivo JSON único en `logerrores/`.
+  - Un subagente interno lee la carpeta, intenta corregir SQL comúnmente inválido
+    (por ejemplo `COUNT()`, `YEAR/MONTH/DAY()`), y elimina el archivo procesado.
+  - También puedes correrlo en modo continuo:
+    `agente-dwh-error-subagent` (o una sola pasada con `agente-dwh-error-subagent --once`).
+
 - **Tablas materializadas en demo**:
   - `mv_sales_monthly`: ventas mensuales por estado/canal/segmento.
   - `mv_customer_lifecycle`: ciclo de vida por cliente (incluye recompra).

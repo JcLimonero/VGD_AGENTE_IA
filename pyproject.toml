@@ -34,6 +34,7 @@ dev = [
 [project.scripts]
 agente-dwh = "agente_dwh.cli:main"
 agente-dwh-web = "agente_dwh.web:main"
+agente-dwh-error-subagent = "agente_dwh.error_subagent:main"
 
 # Solo `agente_dwh` es codigo Python; `proyecto_dashboard/` son docs (evita error de discovery).
 [tool.setuptools.packages.find]

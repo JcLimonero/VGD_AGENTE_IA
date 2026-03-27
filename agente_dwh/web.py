@@ -21,6 +21,7 @@ import pandas as pd
 
 try:
     from .agent import DwhAgent, resolve_llm_profile
+    from .app_services import build_dwh_client, build_llm_client
     from .config import (
         REQUIRED_DWH_DATABASE_NAME,
         ConfigError,
@@ -28,7 +29,7 @@ try:
         normalize_dwh_url_string,
         validate_dwh_url_targets_vgd_prod,
     )
-    from .dwh import DwhClient
+    from .error_subagent import log_error_and_run_subagent
     from .forecast import (
         FORECAST_DIMENSIONS,
         FORECAST_METHODS,
@@ -40,6 +41,17 @@ try:
     )
     from .llm_local import LLMError, LocalOllamaClient
     from .observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
+    from .web_layers.adapters import env_float, env_int, read_schema_hint
+    from .web_layers.presentation import (
+        show_dwh_connection_error,
+        show_missing_dwh_url_error,
+    )
+    from .web_layers.services import (
+        SESSION_KEY_CACHED_DW_AGENT,
+        SESSION_KEY_CACHED_DW_AGENT_CFG,
+        build_agent as build_web_agent,
+        get_session_agent as get_web_session_agent,
+    )
 except ImportError:
     # Cuando Streamlit ejecuta el archivo como script, no hay paquete padre.
     import sys
@@ -48,6 +60,7 @@ except ImportError:
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     from agente_dwh.agent import DwhAgent, resolve_llm_profile
+    from agente_dwh.app_services import build_dwh_client, build_llm_client
     from agente_dwh.config import (
         REQUIRED_DWH_DATABASE_NAME,
         ConfigError,
@@ -55,7 +68,7 @@ except ImportError:
         normalize_dwh_url_string,
         validate_dwh_url_targets_vgd_prod,
     )
-    from agente_dwh.dwh import DwhClient
+    from agente_dwh.error_subagent import log_error_and_run_subagent
     from agente_dwh.forecast import (
         FORECAST_DIMENSIONS,
         FORECAST_METHODS,
@@ -67,6 +80,17 @@ except ImportError:
     )
     from agente_dwh.llm_local import LLMError, LocalOllamaClient
     from agente_dwh.observability import get_metrics_snapshot, get_recent_alerts, get_recent_events
+    from agente_dwh.web_layers.adapters import env_float, env_int, read_schema_hint
+    from agente_dwh.web_layers.presentation import (
+        show_dwh_connection_error,
+        show_missing_dwh_url_error,
+    )
+    from agente_dwh.web_layers.services import (
+        SESSION_KEY_CACHED_DW_AGENT,
+        SESSION_KEY_CACHED_DW_AGENT_CFG,
+        build_agent as build_web_agent,
+        get_session_agent as get_web_session_agent,
+    )
 
 DEFAULT_DWH_URL = normalize_dwh_url_string(os.getenv("DWH_URL", ""))
 DEFAULT_LLM_ENDPOINT = "http://127.0.0.1:11434"
@@ -421,29 +445,15 @@ FIELD_GUIDE_DETAILS: dict[str, list[dict[str, str]]] = {
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name, str(default)).strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+    return env_int(name, default)
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name, str(default)).strip()
-    try:
-        v = float(raw)
-    except ValueError:
-        return default
-    return v if 0.0 <= v <= 2.0 else default
+    return env_float(name, default)
 
 
 def _read_schema_hint(path: str) -> str:
-    if not path.strip():
-        return ""
-    try:
-        return Path(path).read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    return read_schema_hint(path)
 
 
 def _build_agent(
@@ -459,28 +469,18 @@ def _build_agent(
     *,
     llm_profile: str = "default",
 ) -> DwhAgent:
-    dwh = DwhClient.from_url(
-        dwh_url,
-        default_limit=row_limit,
+    return build_web_agent(
+        dwh_url=dwh_url,
+        llm_endpoint=llm_endpoint,
+        llm_model=llm_model,
+        row_limit=row_limit,
+        llm_timeout_seconds=llm_timeout_seconds,
+        schema_hint=schema_hint,
         cache_ttl_seconds=cache_ttl_seconds,
         cache_max_entries=cache_max_entries,
-    )
-    llm = LocalOllamaClient(
-        base_url=llm_endpoint,
-        model_name=llm_model,
-        timeout_seconds=llm_timeout_seconds,
-        temperature=llm_temperature,
-    )
-    return DwhAgent(
-        dwh_client=dwh,
-        llm_client=llm,
-        schema_hint=schema_hint,
+        llm_temperature=llm_temperature,
         llm_profile=llm_profile,
     )
-
-
-SESSION_KEY_CACHED_DW_AGENT = "cached_dw_agent_instance"
-SESSION_KEY_CACHED_DW_AGENT_CFG = "cached_dw_agent_config_tuple"
 
 
 def _get_session_agent(
@@ -496,38 +496,18 @@ def _get_session_agent(
     cache_max_entries: int,
     llm_temperature: float,
 ) -> DwhAgent:
-    """
-    Reutiliza DwhAgent en la sesión si la configuración no cambió: mantiene pool SQLAlchemy y caché de
-    resultados del DWH entre consultas (menos latencia en repetidas / mismos SQL).
-    """
-    llm_profile = resolve_llm_profile(schema_hint_file, dwh_url=dwh_url)
-    cfg = (
-        dwh_url.strip(),
-        llm_endpoint.strip(),
-        llm_model.strip(),
-        int(row_limit),
-        int(llm_timeout_seconds),
-        schema_hint,
-        int(cache_ttl_seconds),
-        int(cache_max_entries),
-        round(float(llm_temperature), 6),
-        llm_profile,
+    return get_web_session_agent(
+        dwh_url=dwh_url,
+        llm_endpoint=llm_endpoint,
+        llm_model=llm_model,
+        row_limit=row_limit,
+        llm_timeout_seconds=llm_timeout_seconds,
+        schema_hint=schema_hint,
+        schema_hint_file=schema_hint_file,
+        cache_ttl_seconds=cache_ttl_seconds,
+        cache_max_entries=cache_max_entries,
+        llm_temperature=llm_temperature,
     )
-    if st.session_state.get(SESSION_KEY_CACHED_DW_AGENT_CFG) != cfg:
-        st.session_state[SESSION_KEY_CACHED_DW_AGENT_CFG] = cfg
-        st.session_state[SESSION_KEY_CACHED_DW_AGENT] = _build_agent(
-            dwh_url=cfg[0],
-            llm_endpoint=cfg[1],
-            llm_model=cfg[2],
-            row_limit=cfg[3],
-            llm_timeout_seconds=cfg[4],
-            schema_hint=cfg[5],
-            cache_ttl_seconds=cfg[6],
-            cache_max_entries=cfg[7],
-            llm_temperature=cfg[8],
-            llm_profile=cfg[9],
-        )
-    return st.session_state[SESSION_KEY_CACHED_DW_AGENT]
 
 
 def _friendly_column_name(name: Any) -> str:
@@ -694,13 +674,13 @@ def _make_summary_llm_client(
     *,
     llm_timeout_seconds: int,
     llm_temperature: float,
-) -> LocalOllamaClient:
+) -> Any:
     """Cliente Ollama para resumen en lenguaje natural (temperatura ligeramente mayor que SQL)."""
-    return LocalOllamaClient(
-        base_url=llm_endpoint.strip(),
-        model_name=llm_model.strip(),
-        timeout_seconds=int(llm_timeout_seconds),
-        temperature=min(0.5, float(llm_temperature) + 0.15),
+    return build_llm_client(
+        llm_endpoint=llm_endpoint.strip(),
+        llm_model=llm_model.strip(),
+        llm_timeout_seconds=int(llm_timeout_seconds),
+        llm_temperature=min(0.5, float(llm_temperature) + 0.15),
     )
 
 
@@ -1162,6 +1142,32 @@ def _extract_pg_hba_ip(error_message: str) -> str:
     return match.group(1) if match else ""
 
 
+def _log_error_for_subagent(
+    *,
+    source: str,
+    message: str,
+    question: str | None = None,
+    sql: str | None = None,
+) -> None:
+    """
+    Registra el error en `logerrores` y dispara el subagente corrector.
+    """
+    context: dict[str, Any] = {}
+    if question:
+        context["question"] = question
+    if sql:
+        context["sql"] = sql
+    try:
+        log_error_and_run_subagent(
+            source=source,
+            message=message,
+            context=context,
+        )
+    except Exception:
+        # Nunca interrumpimos la UI por errores de logging/corrección.
+        return
+
+
 def _nearest_horizon_option(value: int) -> int:
     options = [1, 3, 6, 12]
     return min(options, key=lambda opt: abs(opt - value))
@@ -1353,6 +1359,10 @@ def _render_natural_chat_block() -> tuple[str, bool]:
                     st.markdown(_format_money_in_chat_text(reply))
                 if _is_developer_ui():
                     st.code(turn.get("sql") or "", language="sql")
+                    if turn.get("auto_retry_undefined_column"):
+                        st.caption(
+                            "Trazabilidad: `auto_retry_undefined_column` aplicado en ejecución."
+                        )
                 if not reply:
                     cap = f"{turn.get('rows', 0)} filas"
                     if turn.get("kpi"):
@@ -2016,6 +2026,7 @@ def _render_query_result(
     result: Any,
     model_used: str | None = None,
     cache_stats: dict[str, Any] | None = None,
+    execution_info: dict[str, Any] | None = None,
     *,
     llm_for_summary: LocalOllamaClient | None = None,
     answer_summary_cached: str | None = None,
@@ -2051,6 +2062,11 @@ def _render_query_result(
             st.code(result.generated_sql, language="sql")
             if model_used:
                 st.caption(f"Modelo usado: {model_used}")
+            if (execution_info or {}).get("auto_retry_undefined_column"):
+                st.info(
+                    "Trazabilidad (developer): se aplicó `auto_retry_undefined_column` "
+                    "y la consulta fue corregida automáticamente antes de devolver resultados."
+                )
 
     if st.session_state.get(SESSION_KEY_SHOW_QUERY_EXTRA_PANELS, False):
         has_numeric = _rows_have_numeric_for_chart(rows) if rows else False
@@ -2084,6 +2100,8 @@ def _render_query_result(
             }
             if cache_stats:
                 payload["cache"] = cache_stats
+            if execution_info:
+                payload["execution_info"] = execution_info
             if model_used:
                 payload["modelo_usado"] = model_used
             st.json(payload)
@@ -2606,10 +2624,7 @@ def main() -> None:
     st.title("Panel de Inteligencia Comercial")
 
     if not DEFAULT_DWH_URL:
-        st.error(
-            f"Define DWH_URL en .env con PostgreSQL y base «{REQUIRED_DWH_DATABASE_NAME}», "
-            "por ejemplo: postgresql+psycopg://usuario:clave@host:5432/vgd_dwh_prod_migracion"
-        )
+        show_missing_dwh_url_error(REQUIRED_DWH_DATABASE_NAME)
         st.stop()
     if "postgresql" not in DEFAULT_DWH_URL.lower():
         st.error("DWH_URL debe ser una URL PostgreSQL (postgresql:// o postgresql+psycopg://...).")
@@ -2617,17 +2632,27 @@ def main() -> None:
     try:
         validate_dwh_url_targets_vgd_prod(DEFAULT_DWH_URL)
     except ConfigError as exc:
+        _log_error_for_subagent(
+            source="web_startup_config",
+            message=str(exc),
+            sql="",
+        )
         st.error(str(exc))
         st.stop()
     try:
-        DwhClient.from_url(
-            effective_dwh_url(DEFAULT_DWH_URL), default_limit=5
+        build_dwh_client(
+            dwh_url=effective_dwh_url(DEFAULT_DWH_URL),
+            row_limit=5,
+            cache_ttl_seconds=120,
+            cache_max_entries=50,
         ).execute_select("SELECT 1 AS ok")
     except Exception as exc:
-        st.error(
-            f"No se pudo conectar al DWH ({REQUIRED_DWH_DATABASE_NAME}): {exc}. "
-            "Comprueba red, credenciales y que PostgreSQL acepte la conexión."
+        _log_error_for_subagent(
+            source="web_startup_connection",
+            message=str(exc),
+            sql="SELECT 1 AS ok",
         )
+        show_dwh_connection_error(REQUIRED_DWH_DATABASE_NAME, str(exc))
         st.stop()
 
     dwh_sidebar_md = (
@@ -2767,6 +2792,12 @@ def main() -> None:
     try:
         validate_dwh_url_targets_vgd_prod(dwh_url.strip())
     except ConfigError as exc:
+        _log_error_for_subagent(
+            source="web_runtime_config",
+            message=str(exc),
+            question=effective_question.strip(),
+            sql="",
+        )
         st.error(str(exc))
         return
 
@@ -2785,9 +2816,9 @@ def main() -> None:
     if should_run and forecast_intent:
         with st.spinner("Calculando pronóstico de ventas..."):
             try:
-                dwh = DwhClient.from_url(
-                    dwh_url.strip(),
-                    default_limit=int(max_rows),
+                dwh = build_dwh_client(
+                    dwh_url=dwh_url.strip(),
+                    row_limit=int(max_rows),
                     cache_ttl_seconds=int(cache_ttl_seconds),
                     cache_max_entries=int(cache_max_entries),
                 )
@@ -2799,6 +2830,12 @@ def main() -> None:
                 )
             except Exception as exc:  # noqa: BLE001
                 message = str(exc)
+                _log_error_for_subagent(
+                    source="web_forecast",
+                    message=message,
+                    question=effective_question.strip(),
+                    sql="FORECAST_PYTHON_MODULE",
+                )
                 st.error(f"Error calculando pronóstico: {message}")
                 if "no pg_hba.conf entry" in message:
                     client_ip = _extract_pg_hba_ip(message)
@@ -2847,6 +2884,7 @@ def main() -> None:
 
     with st.spinner("Procesando consulta..."):
         cache_stats: dict[str, Any] | None = None
+        execution_info: dict[str, Any] | None = None
         try:
             agent = _get_session_agent(
                 dwh_url=dwh_url.strip(),
@@ -2877,6 +2915,7 @@ def main() -> None:
                 vehicle_focus=vf,
             )
             cache_stats = agent._dwh.get_cache_stats()  # noqa: SLF001
+            execution_info = agent._dwh.get_last_execution_info()  # noqa: SLF001
             summary_llm = _make_summary_llm_client(
                 llm_endpoint.strip(),
                 llm_model.strip(),
@@ -2890,6 +2929,16 @@ def main() -> None:
             )
         except Exception as exc:  # noqa: BLE001
             message = str(exc)
+            _log_error_for_subagent(
+                source="web_query",
+                message=message,
+                question=effective_question.strip(),
+                sql=(
+                    st.session_state.get(SESSION_KEY_CHAT_TURNS, [{}])[-1].get("sql", "")
+                    if st.session_state.get(SESSION_KEY_CHAT_TURNS)
+                    else ""
+                ),
+            )
             st.error(f"Error ejecutando consulta: {message}")
             if natural_chat:
                 st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, []).append(
@@ -2949,6 +2998,7 @@ def main() -> None:
                             vehicle_focus=vf_fb,
                         )
                         cache_stats = fallback_agent._dwh.get_cache_stats()  # noqa: SLF001
+                        execution_info = fallback_agent._dwh.get_last_execution_info()  # noqa: SLF001
                         summary_llm_fb = _make_summary_llm_client(
                             llm_endpoint.strip(),
                             FALLBACK_LLM_MODEL,
@@ -2971,12 +3021,16 @@ def main() -> None:
                                     "error": None,
                                     "kpi": "",
                                     "answer_summary": answer_summary_fb,
+                                    "auto_retry_undefined_column": bool(
+                                        (execution_info or {}).get("auto_retry_undefined_column")
+                                    ),
                                 }
                             )
                             st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
                                 "kind": "agent",
                                 "result": result,
                                 "cache_stats": cache_stats,
+                                "execution_info": execution_info,
                                 "model_used": FALLBACK_LLM_MODEL,
                                 "answer_summary": answer_summary_fb,
                             }
@@ -2985,11 +3039,17 @@ def main() -> None:
                             result,
                             model_used=FALLBACK_LLM_MODEL,
                             cache_stats=cache_stats,
+                            execution_info=execution_info,
                             answer_summary_cached=answer_summary_fb,
                         )
                         _render_observability_panel(cache_stats=cache_stats)
                         return
                     except Exception as fallback_exc:  # noqa: BLE001
+                        _log_error_for_subagent(
+                            source="web_fallback",
+                            message=str(fallback_exc),
+                            question=effective_question.strip(),
+                        )
                         st.error(f"Fallback falló: {fallback_exc}")
             if "no pg_hba.conf entry" in message:
                 client_ip = _extract_pg_hba_ip(message)
@@ -3024,12 +3084,16 @@ def main() -> None:
                 "error": None,
                 "kpi": "",
                 "answer_summary": answer_summary_precomputed,
+                "auto_retry_undefined_column": bool(
+                    (execution_info or {}).get("auto_retry_undefined_column")
+                ),
             }
         )
         st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
             "kind": "agent",
             "result": result,
             "cache_stats": cache_stats,
+            "execution_info": execution_info,
             "model_used": llm_model.strip(),
             "answer_summary": answer_summary_precomputed,
         }
@@ -3038,6 +3102,7 @@ def main() -> None:
         result,
         model_used=llm_model.strip(),
         cache_stats=cache_stats,
+        execution_info=execution_info,
         answer_summary_cached=answer_summary_precomputed,
     )
     _render_observability_panel(cache_stats=cache_stats)
