@@ -251,7 +251,7 @@ async def execute_query(query_id: str):
         # TODO: Obtener SQL de base de datos
         sql = "SELECT 1 as test"
         
-        results = agent.execute_sql(sql)
+        results = agent.execute_read_only_sql(sql)
         
         return {
             "query_id": query_id,

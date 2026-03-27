@@ -56,6 +56,7 @@ class QueryCreate(BaseModel):
 
 class QueryUpdate(BaseModel):
     title: Optional[str] = None
+    original_question: Optional[str] = None
     sql_text: Optional[str] = None
     chart_type: Optional[str] = None
     chart_config: Optional[Dict[str, Any]] = None
@@ -310,35 +311,43 @@ app.add_middleware(
 )
 
 # ============ Endpoints de Autenticación ============
+def _get_platform_db_conn():
+    """Conexión a la BD de plataforma (usuarios, dashboards)."""
+    import psycopg
+    url = os.getenv("PLATFORM_DB_URL", "")
+    # psycopg acepta DSN postgresql://... directamente
+    return psycopg.connect(url.replace("postgresql+psycopg://", "postgresql://"))
+
+
 @app.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    """
-    Login y obtener JWT token
+    """Login con credenciales de platform_users."""
+    try:
+        conn = _get_platform_db_conn()
+        row = conn.execute(
+            "SELECT id, username, display_name, role, password_hash FROM platform_users WHERE username = %s",
+            (request.email,),
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
 
-    Credenciales de prueba:
-    - email: admin@example.com
-    - password: password123
-    """
-    # TODO: Validar contra base de datos real
-    # Por ahora: validación dummy
-    if request.email == "admin@example.com" and request.password == "password123":
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": request.email, "user_id": "1"},
-            expires_delta=access_token_expires
-        )
+    if row is None or not verify_password(request.password, row[4]):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
-        return LoginResponse(
-            access_token=access_token,
-            user={
-                "id": "1",
-                "email": request.email,
-                "display_name": "Admin User",
-                "role": "admin",
-            }
-        )
-
-    raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    access_token = create_access_token(
+        data={"sub": row[1], "user_id": str(row[0])},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return LoginResponse(
+        access_token=access_token,
+        user={
+            "id": str(row[0]),
+            "email": row[1],
+            "display_name": row[2],
+            "role": row[3],
+        },
+    )
 
 @app.post("/auth/register")
 async def register(user: UserCreate):
@@ -402,6 +411,33 @@ async def health_check():
     }
 
 # ============ Endpoints de Queries ============
+# SQL demo alineado con vistas h_* (validate_vgd_dwh_sql rechaza tablas como `sales`).
+_STUB_DEMO_SAVED_SQL = (
+    "SELECT DATE_TRUNC('month', billing_date) AS month, COUNT(*) AS total "
+    "FROM h_invoices "
+    "WHERE state IN ('Vendido', 'Facturacion del vehiculo') "
+    "GROUP BY DATE_TRUNC('month', billing_date) ORDER BY 1"
+)
+
+
+def _stub_saved_query_row(query_id: str, user_id: str) -> Dict[str, Any]:
+    """Documento de ejemplo hasta persistir en BD (misma forma que listado/get)."""
+    return {
+        "id": query_id,
+        "user_id": user_id,
+        "title": "Ventas por Mes",
+        "original_question": "¿Cuánto vendimos cada mes?",
+        "sql_text": _STUB_DEMO_SAVED_SQL,
+        "chart_type": "line",
+        "chart_config": {"xAxis": "month", "yAxis": "total"},
+        "refresh_interval": "1 hour",
+        "is_active": True,
+        "tags": ["ventas", "mensual"],
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
 @app.get("/api/queries")
 async def get_queries(current_user: dict = Depends(get_current_user)):
     """Listar todas las queries del usuario"""
@@ -412,7 +448,7 @@ async def get_queries(current_user: dict = Depends(get_current_user)):
             "user_id": current_user["id"],
             "title": "Ventas por Mes",
             "original_question": "¿Cuánto vendimos cada mes?",
-            "sql_text": "SELECT DATE_TRUNC('month', sale_date) as month, SUM(amount) as total FROM sales GROUP BY month ORDER BY month",
+            "sql_text": _STUB_DEMO_SAVED_SQL,
             "chart_type": "line",
             "chart_config": {"xAxis": "month", "yAxis": "total"},
             "refresh_interval": "1 hour",
@@ -454,32 +490,22 @@ async def create_query(query: QueryCreate, current_user: dict = Depends(get_curr
 async def get_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Obtener detalle de una query"""
     # TODO: Obtener de base de datos
-    return {
-        "id": query_id,
-        "user_id": current_user["id"],
-        "title": "Ventas por Mes",
-        "original_question": "¿Cuánto vendimos cada mes?",
-        "sql_text": "SELECT DATE_TRUNC('month', sale_date) as month, SUM(amount) as total FROM sales GROUP BY month ORDER BY month",
-        "chart_type": "line",
-        "chart_config": {"xAxis": "month", "yAxis": "total"},
-        "refresh_interval": "1 hour",
-        "is_active": True,
-        "tags": ["ventas", "mensual"],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-    }
+    return _stub_saved_query_row(query_id, current_user["id"])
 
 @app.put("/api/queries/{query_id}")
 async def update_query(query_id: str, updates: QueryUpdate, current_user: dict = Depends(get_current_user)):
     """Actualizar query"""
     # TODO: Validar permisos y actualizar en BD
-    updated_query = {
-        "id": query_id,
-        "user_id": current_user["id"],
-        "updated_at": datetime.utcnow().isoformat(),
-        **updates.dict(exclude_unset=True)
-    }
-    return updated_query
+    patch = updates.dict(exclude_unset=True)
+    if "sql_text" in patch:
+        try:
+            validate_read_only_sql(patch["sql_text"])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"SQL inválido: {str(e)}")
+    existing = _stub_saved_query_row(query_id, current_user["id"])
+    merged = {**existing, **patch}
+    merged["updated_at"] = datetime.utcnow().isoformat()
+    return merged
 
 @app.delete("/api/queries/{query_id}")
 async def delete_query(query_id: str, current_user: dict = Depends(get_current_user)):
@@ -491,34 +517,36 @@ async def delete_query(query_id: str, current_user: dict = Depends(get_current_u
 async def execute_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Ejecutar una query guardada"""
     try:
-        # TODO: Obtener SQL de base de datos
-        sql = "SELECT 1 as test, 'demo' as value"
+        # TODO: Obtener SQL de base de datos; por ahora mismo documento stub que get/put
+        stub = _stub_saved_query_row(query_id, current_user["id"])
 
-        # Ejecutar query
         agent = get_dwh_agent()
         start_time = datetime.utcnow()
-        results = agent.execute_sql(sql)
+        results = agent.execute_read_only_sql(stub["sql_text"])
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds() * 1000
+
+        rows = results or []
+        col_names = list(rows[0].keys()) if rows else []
 
         # TODO: Guardar snapshot en BD
         snapshot = {
             "id": "snapshot_id",
             "saved_query_id": query_id,
-            "result_data": results,
-            "row_count": len(results),
+            "result_data": rows,
+            "row_count": len(rows),
             "executed_at": datetime.utcnow().isoformat(),
             "duration_ms": duration,
             "success": True,
-            "error_message": None
+            "error_message": None,
         }
 
         return {
             "query_id": query_id,
             "executed_at": snapshot["executed_at"],
-            "rows": results,
-            "column_names": ["test", "value"] if results else [],
-            "total_rows": len(results),
+            "rows": jsonable_encoder(rows[:500]),
+            "column_names": col_names,
+            "total_rows": len(rows),
             "execution_time_ms": duration,
         }
     except Exception as e:

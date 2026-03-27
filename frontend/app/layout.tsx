@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthHydrator } from '@/components/AuthHydrator'
+import { ThemePreferenceBridge } from '@/components/ThemePreferenceBridge'
 
 export const metadata: Metadata = {
   title: 'VGD Agente IA - Dashboard',
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body suppressHydrationWarning>
+        <ThemePreferenceBridge />
         <AuthHydrator />
         {children}
       </body>

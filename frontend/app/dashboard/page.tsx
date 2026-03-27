@@ -4,10 +4,11 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { useRouter } from 'next/navigation'
+import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, logout } = useAuth()
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -24,9 +25,22 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-          <div className="text-sm text-gray-600 dark:text-gray-300">
-            Hola, {user?.name}
+          <div className="min-w-0">
+            <AppBreadcrumb
+              items={[{ label: 'Dashboard' }]}
+              currentClassName="text-2xl font-bold text-gray-900 dark:text-white"
+            />
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              Hola, {user?.name}
+            </span>
+            <button
+              onClick={() => { logout(); router.push('/auth/login') }}
+              className="text-sm px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg transition"
+            >
+              Cerrar sesión
+            </button>
           </div>
         </div>
       </header>
@@ -74,9 +88,12 @@ export default function DashboardPage() {
             <p className="text-gray-600 dark:text-gray-300 mb-4">
               Componentes y gráficos disponibles
             </p>
-            <button className="inline-block px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition">
-              Ver Componentes
-            </button>
+            <Link
+              href="/dashboard/widgets"
+              className="inline-block px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
+            >
+              Ver componentes
+            </Link>
           </div>
 
           {/* Card: Configuración */}

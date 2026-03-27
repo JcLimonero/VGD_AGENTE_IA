@@ -385,6 +385,15 @@ class DwhAgent:
     def get_cache_stats(self) -> dict[str, Any]:
         return self._dwh.get_cache_stats()
 
+    def execute_read_only_sql(self, sql: str) -> list[dict[str, Any]]:
+        """
+        Ejecuta un SELECT ya confiable (p. ej. query guardada validada en API).
+        Normaliza dialecto, aplica reglas de solo lectura y prevalidación VGD, y consulta el DWH.
+        """
+        normalized_sql = self._dwh._normalize_sql_for_dialect(validate_read_only_sql(sql))
+        validate_vgd_dwh_sql(normalized_sql)
+        return self._dwh.execute_select(normalized_sql)
+
     def answer(
         self,
         question: str,

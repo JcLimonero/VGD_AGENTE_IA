@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
+import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 
 /** Credenciales de prueba (coinciden con `agente_dwh/api_routes.py`). Quitar o vaciar antes de producción. */
 const TEST_EMAIL = 'admin@example.com'
-const TEST_PASSWORD = 'password123'
+const TEST_PASSWORD = '123456'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -53,6 +54,14 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
       <div className="w-full max-w-md">
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
+          <div className="mb-6 flex justify-center">
+            <AppBreadcrumb
+              items={[
+                { label: 'Inicio', href: '/' },
+                { label: 'Iniciar sesión' },
+              ]}
+            />
+          </div>
           <h1 className="text-2xl font-bold text-center mb-8 text-gray-900 dark:text-white">
             VGD Agente IA
           </h1>

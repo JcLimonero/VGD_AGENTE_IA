@@ -1,6 +1,6 @@
 import { useQueryStore } from '@/store/queries'
 import { apiClient } from '@/services/api'
-import { Query, QueryResult } from '@/types'
+import { normalizeSavedQuery } from '@/lib/savedQuery'
 
 export function useQuery() {
   const {
@@ -23,7 +23,8 @@ export function useQuery() {
     setLoading(true)
     try {
       const data = await apiClient.getQueries()
-      setQueries(data)
+      const list = Array.isArray(data) ? data : []
+      setQueries(list.map((item) => normalizeSavedQuery(item as Record<string, unknown>)))
       setError(null)
     } catch (err: any) {
       setError(err.message)
@@ -48,9 +49,10 @@ export function useQuery() {
   const createQuery = async (query: any) => {
     try {
       const newQuery = await apiClient.createQuery(query)
-      addQuery(newQuery)
+      const normalized = normalizeSavedQuery(newQuery as Record<string, unknown>)
+      addQuery(normalized)
       setError(null)
-      return newQuery
+      return normalized
     } catch (err: any) {
       setError(err.message)
       throw err
@@ -71,9 +73,10 @@ export function useQuery() {
   const modifyQuery = async (id: string, updates: any) => {
     try {
       const updated = await apiClient.updateQuery(id, updates)
-      updateQuery(id, updated)
+      const normalized = normalizeSavedQuery(updated as Record<string, unknown>)
+      updateQuery(id, normalized)
       setError(null)
-      return updated
+      return normalized
     } catch (err: any) {
       setError(err.message)
       throw err
