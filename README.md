@@ -61,6 +61,17 @@ Opcional para dar contexto de tablas/columnas:
 export SCHEMA_HINT_FILE='./schema_hint.txt'
 ```
 
+Opciones del exportador de esquema para mejorar prompts del LLM:
+
+```bash
+# 1 por defecto: agrega muestras de valores categóricos (status, service_type, etc.)
+export AGENTE_DWH_INCLUDE_PROFILED_VALUES='1'
+# límite de muestras por columna
+export AGENTE_DWH_PROFILED_VALUES_LIMIT='12'
+# 0 por defecto: oculta columnas operativas de Salesforce en el hint
+export AGENTE_DWH_INCLUDE_NOISE_COLUMNS='0'
+```
+
 ## Uso CLI
 
 ```bash
@@ -129,6 +140,27 @@ Notas importantes:
 - Si ves un error `no pg_hba.conf entry`, debes permitir la IP origen del cliente en el servidor PostgreSQL.
 - Si el entorno no tiene `python`, usa `python3`.
 - Si el comando `agente-dwh` no existe en PATH, usa `python3 -m agente_dwh.cli`.
+
+## Optimización del DWH para LLM
+
+Script recomendado para preparar el esquema para consultas NL->SQL de múltiples agencias:
+
+```bash
+export DWH_URL='postgresql+psycopg://usuario:clave@host:5432/vgd_dwh_prod_migracion'
+python3 scripts/optimize_dwh_for_llm.py
+python3 scripts/optimize_dwh_for_llm.py --refresh
+```
+
+Este script crea índices de joins/filtros frecuentes y objetos analíticos:
+
+- Vistas: `v_vehicle_master`, `v_cliente_360`, `dim_sellers`, `dim_fecha`
+- Vistas materializadas: `mv_ventas_mensuales_agencia`, `mv_servicios_mensuales_agencia`, `mv_inventario_actual_agencia`, `mv_performance_agencia`
+
+Después de aplicar optimizaciones, vuelve a exportar el contexto para el LLM:
+
+```bash
+python3 scripts/export_dwh_schema_hint.py
+```
 
 ## Sitio web para probar en desktop (Streamlit)
 

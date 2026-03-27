@@ -900,6 +900,78 @@ def _metric_display_value(value: Any) -> str:
     return s
 
 
+def _norm_col_key(col: str) -> str:
+    return str(col).lower().replace(" ", "_").replace("-", "_")
+
+
+def _is_agency_id_like_column(col: str) -> bool:
+    l = _norm_col_key(col)
+    return l in (
+        "id_agency",
+        "agency_id",
+        "idagency",
+        "cod_agencia",
+        "codigo_agencia",
+        "agencyid",
+        "agency_code",
+    )
+
+
+def _preferred_agency_label_x_column(candidates: list[str]) -> str | None:
+    """Primera columna que sirve como etiqueta legible de agencia (evitar solo id)."""
+    preferred_exact = (
+        "agency_name",
+        "nombre_agencia",
+        "agencia_nombre",
+        "nombre_sucursal",
+        "sucursal",
+        "branch_name",
+        "dealer_name",
+        "agencia",
+    )
+    lc = {_norm_col_key(c): c for c in candidates}
+    for p in preferred_exact:
+        if p in lc:
+            return lc[p]
+    has_agency_id = any(_is_agency_id_like_column(c) for c in candidates)
+    if has_agency_id and "name" in lc:
+        return lc["name"]
+    return None
+
+
+def _ordered_chart_x_candidates(columns: list[str], numeric_cols: list[str]) -> list[str]:
+    """Ordena opciones de eje X: nombres de agencia primero; ids de agencia al final."""
+    num_set = set(numeric_cols)
+    non_num = [c for c in columns if c not in num_set]
+    nums = [c for c in columns if c in num_set]
+
+    def sort_key(col: str) -> tuple[int, str]:
+        l = _norm_col_key(col)
+        if l == "agency_name":
+            return (0, col)
+        if l in (
+            "nombre_agencia",
+            "agencia_nombre",
+            "nombre_sucursal",
+            "sucursal",
+            "branch_name",
+            "dealer_name",
+            "agencia",
+        ):
+            return (1, col)
+        if l == "name":
+            return (2, col)
+        if _is_agency_id_like_column(col):
+            return (80, col)
+        if l.endswith("_id"):
+            return (60, col)
+        if col in num_set:
+            return (70, col)
+        return (10, col)
+
+    return sorted(non_num, key=sort_key) + sorted(nums, key=sort_key)
+
+
 def _render_rows(rows: list[dict[str, Any]], *, widget_key_prefix: str = "") -> None:
     if not rows:
         st.info("La consulta no regresó filas.")
@@ -1004,12 +1076,21 @@ def _render_chart_options(rows: list[dict[str, Any]], *, widget_key_prefix: str 
         key=st_chart_type,
     )
 
-    x_candidates = list(df.columns)
+    x_candidates = _ordered_chart_x_candidates(list(df.columns), numeric_cols)
     label_map = {col: _friendly_column_name(col) for col in x_candidates}
+    preferred_x = _preferred_agency_label_x_column(x_candidates)
+    default_x = preferred_x if preferred_x is not None else x_candidates[0]
+
+    # Nuevo resultado (columnas distintas): vuelve a preferir nombre de agencia, no id_agency.
+    sig_key = f"{kp}chart_result_sig"
+    sig = tuple(sorted(str(c) for c in df.columns))
+    if st.session_state.get(sig_key) != sig:
+        st.session_state[sig_key] = sig
+        st.session_state[sx] = default_x
 
     # Evita errores cuando cambian las columnas entre consultas y el estado previo queda inválido.
     if sx not in st.session_state or st.session_state[sx] not in x_candidates:
-        st.session_state[sx] = x_candidates[0]
+        st.session_state[sx] = default_x
     if sy not in st.session_state or st.session_state[sy] not in numeric_cols:
         st.session_state[sy] = numeric_cols[0]
 
@@ -1632,7 +1713,10 @@ _AGENCY_LABEL_KEYS: tuple[str, ...] = (
     "agency_name",
     "nombre_agencia",
     "agencia_nombre",
+    "nombre_sucursal",
+    "sucursal",
     "branch_name",
+    "dealer_name",
     "agencia",
 )
 
@@ -1760,9 +1844,9 @@ def _agency_focus_to_prompt_extra(
         lines.append(f"- Nombre o etiqueta de agencia: {focus['agency_label']}")
     if llm_profile == "vgd":
         lines.append(
-            "Filtra con WHERE tabla.\"idAgency\" = '<valor exacto de arriba>' (entre comillas dobles el nombre de columna). "
-            "Catálogo de agencias: tabla agencies. Para contar agencias del catálogo usa SELECT COUNT(*) FROM agencies; "
-            "no uses la tabla sales."
+            "Filtra con WHERE tabla_homologada.id_agency = '<valor exacto de arriba>' (vistas `h_*` solamente). "
+            "Catálogo: `h_agencies` (columnas id_agency, name). Para listar o agrupar por sucursal incluye "
+            "`h_agencies.name AS agency_name` vía JOIN; no uses tablas base ni `sales`."
         )
     else:
         lines.append(
@@ -1812,9 +1896,12 @@ def _render_follow_up_banners() -> None:
             st.session_state.pop("vehicle_follow_up_pick", None)
             st.rerun()
     if a:
-        lab = a.get("agency_label", "")
-        extra = f" — {lab}" if lab else ""
-        st.markdown(f"🏢 **Agencia:** **{a.get('id_agency')}**{extra}")
+        lab = (a.get("agency_label") or "").strip()
+        idv = a.get("id_agency")
+        if lab:
+            st.markdown(f"🏢 **Agencia:** **{lab}** (`id_agency`={idv})")
+        else:
+            st.markdown(f"🏢 **Agencia:** **{idv}**")
         if st.button("Quitar agencia", key="clear_focus_agency_btn"):
             st.session_state.pop(SESSION_KEY_FOCUS_AGENCY, None)
             st.session_state.pop("agency_follow_up_pick", None)
@@ -1902,6 +1989,7 @@ def _prepare_new_result_view() -> None:
     st.session_state.pop("chart_x_col", None)
     st.session_state.pop("chart_y_col", None)
     st.session_state.pop("chart_type", None)
+    st.session_state.pop("chart_result_sig", None)
     st.session_state.pop("vehicle_follow_up_pick", None)
     st.session_state.pop("agency_follow_up_pick", None)
     st.session_state.pop(SESSION_KEY_SHOW_QUERY_EXTRA_PANELS, None)
@@ -1978,8 +2066,11 @@ def _render_query_result(
         _render_agency_follow_up_section(rows)
         hom_ag = _all_rows_same_agency_focus(rows) if rows else None
         if hom_ag and not st.session_state.get("auto_focus_agency_homogeneous", False):
+            lab = (hom_ag.get("agency_label") or "").strip()
+            idv = hom_ag.get("id_agency")
+            ag_txt = f"**{lab}** (`id_agency`={idv})" if lab else f"**{idv}**"
             st.info(
-                f"Todas las filas corresponden a la agencia **{hom_ag['id_agency']}**. "
+                f"Todas las filas corresponden a la agencia {ag_txt}. "
                 "Puedes fijarla arriba en **Seguimiento por agencia**, o activar en Configuración "
                 "«Auto: fijar agencia si todas las filas coinciden» para hacerlo solo al consultar."
             )

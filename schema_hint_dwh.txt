@@ -1,7 +1,7 @@
-DWH PostgreSQL — esquema `public`, base de datos `vgd_dwh_prod_migracion`.
+DWH PostgreSQL — esquema `public`, base de datos `dwh`.
 
 === Instrucciones para el modelo (obligatorio) ===
-- Usa ÚNICAMENTE las tablas y columnas listadas más abajo. En `public` hay 13 tablas.
+- Usa ÚNICAMENTE las tablas/vistas y columnas listadas más abajo. En `public` hay 14 objetos incluidos en este catálogo.
 - No inventes tablas, vistas ni columnas que no aparezcan en este documento.
 - En esta instancia NO existen en `public` (no las uses en SQL): sales, vehicles, service_appointments, insurance_policies, mv_sales_monthly.
 - Equivalencias frente al dataset demo del repo: `sales` del demo → usa `invoices` para ventas facturadas (y `orders` o `comissions` si la pregunta es pedidos o comisiones); `vehicles` del demo → usa `inventory` para unidades en stock (VIN y datos de unidad en columnas listadas).
@@ -11,338 +11,361 @@ DWH PostgreSQL — esquema `public`, base de datos `vgd_dwh_prod_migracion`.
 - «Clientes por estado» (geográfico): usa `customers.state` y `FROM customers` (no mezcles con tablas inexistentes ni GROUP BY de columnas sin JOIN válido).
 - Personas morales: revisa `name` y `bussines_name` en customers según columnas listadas.
 - Agencia en hechos: JOIN a agencies ON t."idAgency" = a."idAgency".
-- Preguntas por unidad / VIN: columnas `vin` suelen estar en: comissions, inventory, customer_vehicle, services_by_vin (ver listado de columnas).
+- Preguntas por unidad / VIN: columnas `vin` suelen estar en: inventory, customer_vehicle (ver listado de columnas).
 - La tabla `services` es la de este DWH; no asumas otras tablas de taller salvo que estén listadas arriba.
+- Existen vistas homologadas `h_*` con nombres de columnas en snake_case; priorízalas para consultas NL->SQL si cubren la pregunta.
+- Resultados por agencia: haz JOIN `h_agencies` ON hecho.id_agency = h_agencies.id_agency y muestra `h_agencies.name AS agency_name` (nombre legible). Evita dejar solo id_agency en el SELECT salvo que pidan el id.
 - Identificadores en camelCase requieren comillas dobles en PostgreSQL (p. ej. "idAgency", "ndClientDMS").
+- El exportador puede omitir columnas operativas de integración (Salesforce) para reducir ruido en el prompt del LLM.
 
-(Generado desde `vgd_dwh_prod_migracion` / `public`.)
+(Generado desde `dwh` / `public`.)
 
 === Relaciones (FK) ===
-- agencies_config: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- agencies_detail: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- comissions: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- comissions: FOREIGN KEY ("idAgency", "ndClientDMS") REFERENCES customers("idAgency", "ndClientDMS")
-- customer_vehicle: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- customer_vehicle: FOREIGN KEY ("idAgency", "ndClientDMS") REFERENCES customers("idAgency", "ndClientDMS")
-- customers: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- inventory: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- invoices: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- last_customer_seller: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- last_customer_seller: FOREIGN KEY ("idAgency", "ndClientDMS") REFERENCES customers("idAgency", "ndClientDMS")
-- orders: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- orders: FOREIGN KEY ("idAgency", "ndClientDMS") REFERENCES customers("idAgency", "ndClientDMS")
-- services: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- services_by_vin: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
-- spares: FOREIGN KEY ("idAgency") REFERENCES agencies("idAgency")
 
-=== Tablas y columnas ===
+=== Tablas/vistas y columnas ===
 
-agencies (~21 filas)
-  » Catálogo maestro de agencias (concesionarios o sucursales). Clave de negocio visible: idAgency (varchar). Sirve para filtrar casi todos los hechos del DWH.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Identificador de agencia en el DMS (texto); FK en casi todas las tablas de hechos.
-  - "name" character varying(256) NOT NULL
-  - "isActive" smallint(16,0) NOT NULL
-  - "created_at" timestamp without time zone NOT NULL
-  - "updated_at" timestamp without time zone NOT NULL
+agencies [BASE TABLE] (~20 filas)
+  - "id" bigint(64,0) NULL
+  - "idAgency" text NULL
+  - "name" text NULL
+  - "isActive" bigint(64,0) NULL
+  - "created_at" timestamp without time zone NULL
+  - "updated_at" timestamp without time zone NULL
 
-agencies_config (~20 filas)
-  » Configuración operativa e integración por agencia: DMS, matriz, citas, tokens, RFC de la razón, API keys. Complementa agencies; no sustituye el catálogo de nombres.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "dms" character varying(50) NULL
-  - "IsMatriz" smallint(16,0) NOT NULL
-  - "prefixQuery" character varying(100) NULL
-  - "connectionstring" character varying(100) NULL
-  - "allow_appointment" smallint(16,0) NOT NULL
-  - "tokenAppoinments" character varying(255) NULL
-  - "rfc" character varying(100) NULL
-  - "apikey" character varying(50) NULL
-  - "created_at" timestamp without time zone NOT NULL
-  - "updated_at" timestamp without time zone NOT NULL
-
-agencies_detail (~20 filas)
-  » Datos extendidos de la agencia: razón social, domicilio, mapas, teléfonos, WhatsApp por área (servicio, refacciones, ventas) y datos bancarios para cobro.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "name" character varying(256) NOT NULL
-  - "legal_name" character varying(100) NULL
-  - "abbreviation" character varying(20) NULL
-  - "country" character varying(100) NULL
-  - "address" text NULL
-  - "google_maps_link" text NULL
-  - "switchboard_phone" character varying(20) NULL
-  - "whatsapp_service_appointments_phone" character varying(20) NULL
-  - "whatsapp_spares_phone" character varying(20) NULL
-  - "whatsapp_sales_phone" character varying(20) NULL
-  - "bank" character varying(100) NULL
-  - "account_bank" character varying(100) NULL
-  - "account_bank_cve" character varying(100) NULL
-  - "account_bank_name" character varying(100) NULL
-  - "created_at" timestamp without time zone NOT NULL
-  - "updated_at" timestamp without time zone NOT NULL
-
-comissions (~56003 filas)
-  » Comisiones de venta con detalle comercial: pedido, factura, vehículo (VIN), cliente DMS, asesor y montos. Tabla analítica típica para desempeño de ventas y entregas.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "order_dms" character varying(100) NOT NULL
-  - "order_timestamp" timestamp without time zone NULL
-  - "order_status" character varying(50) NULL
-  - "invoice" character varying(50) NOT NULL
-  - "invoice_data" timestamp without time zone NULL
-  - "delivery_date" timestamp without time zone NULL
-  - "brand" character varying(100) NULL
-  - "year" character varying(4) NULL
-  - "model" character varying(100) NULL
-  - "version" character varying(100) NULL
-  - "exterior_color" character varying(100) NULL
-  - "vin" character varying(50) NOT NULL — VIN del vehículo asociado a la comisión de venta.
-  - "plate" character varying(20) NULL
-  - "acquisition_value" numeric(18,2) NULL
-  - "dalers_value" numeric(18,2) NULL
-  - "ndClientDMS" character varying(50) NOT NULL — Cliente DMS asociado a la operación de comisión.
-  - "customer_name" character varying(255) NULL
-  - "idConsultant" character varying(20) NOT NULL
-  - "consultant_name" character varying(100) NULL
-  - "consultant_mail" character varying(255) NULL
-  - "timestamp" timestamp without time zone NULL
-
-customer_vehicle (~124638 filas)
-  » Relación cliente–vehículo: qué VIN/placa está asociado a qué cliente (idAgency, ndClientDMS). Puente entre clientes e inventario o historial de unidad.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "ndClientDMS" character varying(50) NOT NULL
-  - "customerName" character varying(255) NULL
-  - "vin" character varying(50) NOT NULL — VIN del vehículo ligado al cliente.
-  - "brand" character varying(100) NULL
-  - "model" character varying(100) NULL
-  - "version" character varying(100) NULL
-  - "year" character varying(4) NULL
-  - "plates" character varying(100) NULL
-  - "external_color" character varying(50) NULL
-  - "internal_color" character varying(50) NULL
+customer_vehicle [BASE TABLE] (~124638 filas)
+  - "id" bigint(64,0) NULL
+  - "idAgency" text NULL
+  - "ndClientDMS" text NULL
+  - "customerName" text NULL
+  - "vin" text NULL
+  - "brand" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "year" text NULL
+  - "plates" text NULL
+  - "external_color" text NULL
+  - "internal_color" text NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
-  - "insurance_expiration_date" character varying(100) NULL
-  - "insurance_number" character varying(100) NULL
-  - "insurance_company" character varying(100) NULL
+  - "timestamp_hex" text NULL
+  - "insurance_expiration_date" date NULL
+  - "insurance_number" text NULL
+  - "insurance_company" text NULL
   - "timestamp_insurance_info" date NULL
 
-customers (~170274 filas)
-  » Clientes del DMS por agencia. Clave natural compuesta: (idAgency, ndClientDMS). Persona física o moral; para morales el nombre comercial suele ir en bussines_name (name puede estar vacío). Incluye contacto, dirección y datos fiscales.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia a la que pertenece el cliente; forma clave natural con ndClientDMS.
-  - "ndClientDMS" character varying(50) NOT NULL — ID del cliente en el DMS; único solo en combinación con idAgency.
-  - "name" character varying(256) NOT NULL — Nombre de persona física o contacto; puede ir vacío en persona moral.
-  - "paternal_surname" character varying(256) NULL
-  - "maternal_surname" character varying(256) NULL
-  - "bussines_name" character varying(255) NULL — Razón social o nombre comercial (persona moral); usar para mostrar cliente PM.
-  - "rfc" character varying(100) NULL
-  - "curp" character varying(100) NULL
-  - "mobile_phone" character varying(100) NULL
-  - "phone" character varying(100) NULL
-  - "other_phone" character varying(100) NULL
-  - "assitant_phone" character varying(100) NULL
-  - "office_phone" character varying(100) NULL
-  - "mail" character varying(256) NULL
-  - "activitie" character varying(100) NULL
-  - "street" character varying(100) NULL
-  - "external_number" character varying(200) NULL
-  - "internal_number" character varying(200) NULL
-  - "zipcode" character varying(10) NULL
-  - "between_streets" character varying(250) NULL
-  - "settlement" character varying(250) NULL
-  - "deputation" character varying(250) NULL
-  - "country" character varying(100) NULL
-  - "city" character varying(250) NULL
-  - "state" character varying(250) NULL
+customers [BASE TABLE] (~154691 filas)
+  - "id" bigint(64,0) NULL
+  - "idAgency" text NULL
+  - "ndClientDMS" text NULL
+  - "name" text NULL
+  - "paternal_surname" text NULL
+  - "maternal_surname" text NULL
+  - "bussines_name" text NULL
+  - "rfc" text NULL
+  - "curp" text NULL
+  - "mobile_phone" text NULL
+  - "phone" text NULL
+  - "other_phone" text NULL
+  - "assitant_phone" text NULL
+  - "office_phone" text NULL
+  - "mail" text NULL
+  - "activitie" text NULL
+  - "street" text NULL
+  - "external_number" text NULL
+  - "internal_number" text NULL
+  - "zipcode" text NULL
+  - "between_streets" text NULL
+  - "settlement" text NULL
+  - "deputation" text NULL
+  - "country" text NULL
+  - "city" text NULL
+  - "state" text NULL
   - "birthay_date" date NULL
-  - "salutation" character varying(10) NULL
-  - "gender" character varying(50) NULL
-  - "costumer_type" character varying(50) NULL
-  - "Est_Civil" character varying(50) NULL
-  - "appointment" integer(32,0) NULL
-  - "allow_contact" integer(32,0) NULL
-  - "ndSeller" character varying(20) NULL
-  - "seller_Name" character varying(250) NULL
-  - "seller_Email" character varying(256) NULL
-  - "clasification" integer(32,0) NULL
-  - "customer_source" character varying(50) NULL
-  - "preferred_contact_method" character varying(50) NULL
-  - "last_sale" character varying(255) NULL
+  - "salutation" text NULL
+  - "gender" text NULL
+  - "costumer_type" text NULL
+  - "Est_Civil" text NULL
+  - "appointment" text NULL
+  - "allow_contact" bigint(64,0) NULL
+  - "ndSeller" text NULL
+  - "seller_Name" text NULL
+  - "seller_Email" text NULL
+  - "clasification" text NULL
+  - "customer_source" text NULL
+  - "preferred_contact_method" text NULL
+  - "last_sale" text NULL
   - "timestamp_dms" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
+  - "timestamp_hex" text NULL
   - "timestamp" timestamp without time zone NULL
-  - "is_consolidated" smallint(16,0) NULL
+  - "is_consolidated" bigint(64,0) NULL
 
-inventory (~141131 filas)
-  » Inventario de unidades (vehículos en stock o disponibles) por agencia: VIN, modelo, color, estatus, fechas y valores. Hecho principal para preguntas de stock.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia donde está la unidad en inventario.
-  - "vin" character varying(50) NOT NULL — Número de identificación vehicular (único por unidad).
-  - "status" character varying(300) NULL
-  - "statusDescription" character varying(100) NULL
-  - "type" character varying(50) NULL
-  - "typeDescription" character varying(100) NULL
-  - "brand" character varying(100) NULL
-  - "year" character varying(4) NULL
-  - "model" character varying(100) NULL
-  - "version" character varying(100) NULL
-  - "exterior_color" character varying(100) NULL
-  - "interior_color" character varying(100) NULL
-  - "characteristics" text NULL
-  - "km" integer(32,0) NULL
-  - "amount" numeric(18,2) NULL
+h_agencies [VIEW] (~20 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "name" text NULL
+  - "is_active" bigint(64,0) NULL
+  - "created_at" timestamp without time zone NULL
+  - "updated_at" timestamp without time zone NULL
+
+h_customer_vehicle [VIEW] (~124638 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "nd_client_dms" text NULL
+  - "customer_name" text NULL
+  - "vin" text NULL
+  - "brand" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "year" text NULL
+  - "plates" text NULL
+  - "external_color" text NULL
+  - "internal_color" text NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
-  - "sendedSalesForce" smallint(16,0) NULL
-  - "idSalesForce" character varying(250) NULL
-  - "resultSF" text NULL
-  - "sf_jsonRequest" text NULL
-  - "timestamp_sales_force" timestamp without time zone NULL
-  - "sf_attempts" integer(32,0) NULL
+  - "timestamp_hex" text NULL
+  - "insurance_expiration_date" date NULL
+  - "insurance_number" text NULL
+  - "insurance_company" text NULL
+  - "timestamp_insurance_info" date NULL
+
+h_customers [VIEW] (~154691 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "nd_client_dms" text NULL
+  - "name" text NULL
+  - "paternal_surname" text NULL
+  - "maternal_surname" text NULL
+  - "bussines_name" text NULL
+  - "rfc" text NULL
+  - "curp" text NULL
+  - "mobile_phone" text NULL
+  - "phone" text NULL
+  - "other_phone" text NULL
+  - "assitant_phone" text NULL
+  - "office_phone" text NULL
+  - "mail" text NULL
+  - "activitie" text NULL
+  - "street" text NULL
+  - "external_number" text NULL
+  - "internal_number" text NULL
+  - "zipcode" text NULL
+  - "between_streets" text NULL
+  - "settlement" text NULL
+  - "deputation" text NULL
+  - "country" text NULL
+  - "city" text NULL
+  - "state" text NULL
+  - "birthay_date" date NULL
+  - "salutation" text NULL
+  - "gender" text NULL
+  - "costumer_type" text NULL
+  - "est_civil" text NULL
+  - "appointment" text NULL
+  - "allow_contact" bigint(64,0) NULL
+  - "nd_seller" text NULL
+  - "seller_name" text NULL
+  - "seller_email" text NULL
+  - "clasification" text NULL
+  - "customer_source" text NULL
+  - "preferred_contact_method" text NULL
+  - "last_sale" text NULL
+  - "timestamp_dms" timestamp without time zone NULL
+  - "timestamp_hex" text NULL
+  - "timestamp" timestamp without time zone NULL
+  - "is_consolidated" bigint(64,0) NULL
+
+h_inventory [VIEW] (~141132 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "vin" text NULL
+  - "status" text NULL
+  - "status_description" text NULL
+  - "type" text NULL
+  - "type_description" text NULL
+  - "brand" text NULL
+  - "year" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "exterior_color" text NULL
+  - "interior_color" text NULL
+  - "characteristics" text NULL
+  - "km" bigint(64,0) NULL
+  - "amount" double precision(53,0) NULL
+  - "timestamp_dms" timestamp without time zone NULL
+  - "timestamp" timestamp without time zone NULL
+  - "timestamp_hex" text NULL
+  - "sended_sales_force" text NULL
+  - "id_sales_force" text NULL
+  - "result_sf" text NULL
+  - "sf_json_request" text NULL
   - "timestamp_created" timestamp without time zone NULL
   - "timestamp_updated" timestamp without time zone NULL
 
-invoices (~62757 filas)
-  » Facturas registradas en el DWH por agencia: importes, fechas, cliente DMS, orden y datos de facturación. Sirve para ingresos facturados y conciliación de alto nivel.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia emisora o de registro de la factura.
-  - "order_dms" character varying(100) NOT NULL
-  - "state" character varying(250) NULL
-  - "vin" character varying(50) NOT NULL
+h_invoices [VIEW] (~62757 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "order_dms" text NULL
+  - "state" text NULL
+  - "vin" text NULL
   - "warranty_init_date" date NULL
-  - "plates" character varying(100) NULL
-  - "payment_method" character varying(100) NULL
+  - "plates" text NULL
+  - "payment_method" text NULL
   - "sub_total" double precision(53,0) NULL
-  - "accesories" smallint(16,0) NULL
+  - "accesories" bigint(64,0) NULL
   - "amount_accesories" double precision(53,0) NULL
-  - "financial_terms" character varying(300) NULL
-  - "invoice_reference" character varying(100) NULL
+  - "financial_terms" text NULL
+  - "invoice_reference" text NULL
   - "billing_date" date NULL
-  - "amount_taxes" integer(32,0) NULL
-  - "financial_institution" character varying(100) NULL
-  - "stage_name" character varying(200) NULL
-  - "delivery_date" timestamp without time zone NULL
+  - "amount_taxes" bigint(64,0) NULL
+  - "financial_institution" text NULL
+  - "stage_name" text NULL
+  - "delivery_date" date NULL
   - "cancelation_date" date NULL
-  - "close_date" date NULL
-  - "description" character varying(500) NULL
-  - "sendedSalesForce" smallint(16,0) NULL
-  - "idSalesForce" character varying(250) NULL
-  - "resultSF" text NULL
-  - "sf_jsonRequest" text NULL
-  - "sf_attempts" integer(32,0) NULL
+  - "close_date" text NULL
+  - "description" text NULL
+  - "sended_sales_force" bigint(64,0) NULL
+  - "id_sales_force" text NULL
+  - "result_sf" text NULL
+  - "sf_json_request" text NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_sales_force" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
+  - "timestamp_hex" text NULL
 
-last_customer_seller (~51658 filas)
-  » Último vendedor o asesor de ventas asignado al cliente en el DMS (por agencia y ndClientDMS). Sirve para rotación comercial o seguimiento del ejecutivo actual.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "order_dms" character varying(100) NOT NULL
-  - "ndClientDMS" character varying(50) NOT NULL
-  - "customerName" character varying(255) NULL
-  - "ndConsultant" character varying(20) NULL
-  - "order_timestamp" timestamp without time zone NULL
-  - "consultantName" character varying(100) NULL
-  - "consultantMail" character varying(255) NULL
-  - "timestamp" timestamp without time zone NULL
-
-orders (~70532 filas)
-  » Pedidos de unidades u órdenes de pedido en el DMS, ligados a cliente (idAgency, ndClientDMS) y agencia. Base para análisis de pipeline o volumen de pedidos.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia del pedido; FK a agencies.
-  - "order_dms" character varying(100) NOT NULL
-  - "invoice" character varying(50) NOT NULL
-  - "amount" numeric(18,2) NULL
-  - "vin" character varying(50) NOT NULL
-  - "brand" character varying(100) NULL
-  - "model" character varying(100) NULL
-  - "version" character varying(100) NULL
-  - "year" character varying(4) NULL
-  - "external_color" character varying(50) NULL
-  - "internal_color" character varying(50) NULL
-  - "id_status" character varying(10) NULL
-  - "status_description" character varying(100) NULL
-  - "ndClientDMS" character varying(50) NOT NULL — Cliente DMS del pedido; unir a customers con idAgency.
-  - "ndConsultant" character varying(20) NULL
-  - "consultantName" character varying(100) NULL
-  - "phone_seller" character varying(20) NULL
+h_orders [VIEW] (~70532 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "order_dms" text NULL
+  - "invoice" text NULL
+  - "amount" double precision(53,0) NULL
+  - "vin" text NULL
+  - "brand" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "year" text NULL
+  - "external_color" text NULL
+  - "internal_color" text NULL
+  - "id_status" text NULL
+  - "status_description" text NULL
+  - "nd_client_dms" text NULL
+  - "nd_consultant" text NULL
+  - "consultant_name" text NULL
+  - "phone_seller" text NULL
   - "delivery_date" timestamp without time zone NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
 
-services (~286885 filas)
-  » Servicios de taller/recepción en el DMS (órdenes de servicio o líneas de servicio según origen). No es la tabla de citas del demo: usar columnas reales del esquema. Ligado a agencia.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia donde se registró el servicio.
-  - "order_dms" character varying(100) NOT NULL
+h_services [VIEW] (~286885 filas)
+  - "id" bigint(64,0) NULL
+  - "id_agency" text NULL
+  - "order_dms" text NULL
   - "service_date" date NULL
-  - "service_type" character varying(200) NULL
-  - "service_to_perform" character varying(300) NULL
-  - "amount" numeric(18,2) NULL
-  - "km" integer(32,0) NULL
-  - "vin" character varying(50) NOT NULL
-  - "status" character varying(300) NULL
-  - "stage_name" character varying(200) NULL
-  - "sendedSalesForce" smallint(16,0) NULL
-  - "idSalesForce" character varying(250) NULL
-  - "resultSF" text NULL
-  - "sf_jsonRequest" text NULL
+  - "service_type" text NULL
+  - "service_to_perform" text NULL
+  - "amount" double precision(53,0) NULL
+  - "km" text NULL
+  - "vin" text NULL
+  - "status" text NULL
+  - "stage_name" text NULL
+  - "sended_sales_force" bigint(64,0) NULL
+  - "id_sales_force" text NULL
+  - "result_sf" text NULL
+  - "sf_json_request" text NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_sales_force" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
+  - "timestamp_hex" text NULL
 
-services_by_vin (~414553 filas)
-  » Hechos o resúmenes de servicio asociados al VIN (y agencia). Útil para historial de servicio por unidad sin pasar por otra tabla intermedia.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL
-  - "invoice" character varying(50) NOT NULL
-  - "vin" character varying(50) NOT NULL — VIN sobre el que se reporta el servicio.
-  - "order_dms" character varying(100) NOT NULL
-  - "IdStatus" character varying(10) NULL
-  - "statusDescription" character varying(100) NULL
-  - "idServiceType" character varying(10) NULL
-  - "serviceType" character varying(50) NULL
-  - "serviceTypeDescription" character varying(500) NULL
-  - "serviceTypeDetail" character varying(500) NULL
-  - "amount" numeric(18,2) NULL
-  - "km" integer(32,0) NULL
-  - "startDateTime" timestamp without time zone NULL
-  - "endDateTime" timestamp without time zone NULL
-  - "ndConsultant" character varying(20) NULL
-  - "consultantName" character varying(100) NULL
-  - "consultant_phone" character varying(20) NULL
+inventory [BASE TABLE] (~141132 filas)
+  - "id" bigint(64,0) NULL
+  - "idAgency" text NULL
+  - "vin" text NULL
+  - "status" text NULL
+  - "statusDescription" text NULL
+  - "type" text NULL
+  - "typeDescription" text NULL
+  - "brand" text NULL
+  - "year" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "exterior_color" text NULL
+  - "interior_color" text NULL
+  - "characteristics" text NULL
+  - "km" bigint(64,0) NULL
+  - "amount" double precision(53,0) NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
+  - "timestamp_hex" text NULL
+  - "timestamp_created" timestamp without time zone NULL
+  - "timestamp_updated" timestamp without time zone NULL
 
-spares (~66260 filas)
-  » Refacciones o piezas (catálogo/movimientos de spare parts en el DMS). Incluye existencias, precios y referencias; granularidad por part_number y agencia.
-  - "id" integer(32,0) NOT NULL
-  - "idAgency" character varying(50) NOT NULL — Agencia dueña del inventario o catálogo de refacción.
-  - "bussines_name" character varying(255) NULL
-  - "agency" character varying(255) NULL
-  - "warehouse_number" character varying(255) NULL
-  - "sku" character varying(255) NULL
-  - "part_number" character varying(255) NULL
-  - "description" character varying(500) NULL
-  - "desctiption_ext" character varying(500) NULL
-  - "cost" numeric(18,2) NULL
-  - "location" character varying(255) NULL
-  - "family" character varying(255) NULL
-  - "available" integer(32,0) NULL
-  - "reserved" integer(32,0) NULL
-  - "public_cost" numeric(18,2) NULL
-  - "first_purchase" timestamp without time zone NULL
-  - "last_purchase" timestamp without time zone NULL
-  - "last_sale" character varying(255) NULL
+invoices [BASE TABLE] (~62757 filas)
+  - "Id" bigint(64,0) NULL
+  - "idAgency" bigint(64,0) NULL
+  - "order_dms" text NULL
+  - "state" text NULL
+  - "vin" text NULL
+  - "warranty_init_date" date NULL
+  - "plates" text NULL
+  - "payment_method" text NULL
+  - "sub_total" double precision(53,0) NULL
+  - "accesories" bigint(64,0) NULL
+  - "amount_accesories" double precision(53,0) NULL
+  - "financial_terms" text NULL
+  - "invoice_reference" text NULL
+  - "billing_date" date NULL
+  - "amount_taxes" bigint(64,0) NULL
+  - "financial_institution" text NULL
+  - "stage_name" text NULL
+  - "delivery_date" date NULL
+  - "cancelation_date" date NULL
+  - "close_date" text NULL
+  - "description" text NULL
   - "timestamp_dms" timestamp without time zone NULL
   - "timestamp" timestamp without time zone NULL
-  - "timestamp_hex" character varying(150) NULL
+  - "timestamp_hex" text NULL
+
+orders [BASE TABLE] (~70532 filas)
+  - "id" bigint(64,0) NULL
+  - "idAgency" text NULL
+  - "order_dms" text NULL
+  - "invoice" text NULL
+  - "amount" double precision(53,0) NULL
+  - "vin" text NULL
+  - "brand" text NULL
+  - "model" text NULL
+  - "version" text NULL
+  - "year" text NULL
+  - "external_color" text NULL
+  - "internal_color" text NULL
+  - "id_status" text NULL
+  - "status_description" text NULL
+  - "ndClientDMS" text NULL
+  - "ndConsultant" text NULL
+  - "consultantName" text NULL
+  - "phone_seller" text NULL
+  - "delivery_date" timestamp without time zone NULL
+  - "timestamp_dms" timestamp without time zone NULL
+  - "timestamp" timestamp without time zone NULL
+
+services [BASE TABLE] (~286885 filas)
+  - "Id" bigint(64,0) NULL
+  - "idAgency" bigint(64,0) NULL
+  - "order_dms" text NULL
+  - "service_date" date NULL
+  - "service_type" text NULL
+  - "service_to_perform" text NULL
+  - "amount" double precision(53,0) NULL
+  - "km" text NULL
+  - "vin" text NULL
+  - "status" text NULL
+  - "stage_name" text NULL
+  - "timestamp_dms" timestamp without time zone NULL
+  - "timestamp" timestamp without time zone NULL
+  - "timestamp_hex" text NULL
+
+=== Valores de referencia (muestras útiles) ===
+- inventory.status: 'A', 'L', 'Listo para venta', 'R', 'V', 'Vendido', 'X'
+- inventory.statusDescription: 'Cancelado', 'Listo para venta', 'Reservado', 'Sin Definir', 'Vendido'
+- invoices.stage_name: 'Facturacion del vehiculo'
+- orders.status_description: 'ANULADO', 'Facturacion nuevo', 'Facturacion seminuev', 'Lista para entrega', 'Orden abierta', 'Pedido cancelado', 'Pedido nuevo asignad', 'Pedido seminuevo', 'Pedido seminvo asign', 'Unidad asignada', 'Unidad en preparación', 'Unidad entregada'
+- services.service_type: 'Body Shop', 'DIFERENCIA AVALUO', 'Garantia', 'HOJALATERIA', 'MANTENIMIENTO Y SERVICIO MECANICA', 'MASA EQUILIBRAD', 'Mantenimiento', 'REPARACION MECANICA', 'REPARACIONES EN', 'SUBARRENDADO HOJALATERIA Y PINTURA', 'SUBARRENDADO MECANICA'
+- services.status: 'CERRADA', 'EN CURSO', 'EN ESPERA', 'OS Facturada', 'Os Cancelada', 'Os Cerrada', 'Os Facturada', 'PENDIENTE DE PIEZA', 'PIEZA RECIBIDA', 'TERMINADO'

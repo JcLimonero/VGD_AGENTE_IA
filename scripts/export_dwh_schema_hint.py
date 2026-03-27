@@ -40,6 +40,28 @@ _COMMON_DEMO_TABLES = (
     "mv_sales_monthly",
 )
 
+# Columnas operativas con poco valor analítico para NL->SQL.
+_DEFAULT_NOISE_COLUMNS = {
+    "sendedSalesForce",
+    "idSalesForce",
+    "resultSF",
+    "sf_jsonRequest",
+    "sf_attempts",
+    "timestamp_sales_force",
+}
+
+# Columnas de texto donde vale la pena mostrar ejemplos de valores al LLM.
+_PROFILED_CATEGORICAL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("inventory", "status"),
+    ("inventory", "statusDescription"),
+    ("orders", "status_description"),
+    ("services", "status"),
+    ("services", "service_type"),
+    ("services_by_vin", "statusDescription"),
+    ("services_by_vin", "serviceType"),
+    ("invoices", "stage_name"),
+)
+
 
 def _sqlalchemy_to_psycopg_url(url: str) -> str:
     u = url.strip()
@@ -67,7 +89,7 @@ def build_preamble(db_name: str, tables: list[str], meta: dict) -> str:
         f"DWH PostgreSQL — esquema `public`, base de datos `{db_name}`.",
         "",
         "=== Instrucciones para el modelo (obligatorio) ===",
-        f"- Usa ÚNICAMENTE las tablas y columnas listadas más abajo. En `public` hay {len(tables)} tablas.",
+        f"- Usa ÚNICAMENTE las tablas/vistas y columnas listadas más abajo. En `public` hay {len(tables)} objetos incluidos en este catálogo.",
         "- No inventes tablas, vistas ni columnas que no aparezcan en este documento.",
     ]
     if missing_demo:
@@ -122,10 +144,63 @@ def build_preamble(db_name: str, tables: list[str], meta: dict) -> str:
         lines.append(
             "- La tabla `services` es la de este DWH; no asumas otras tablas de taller salvo que estén listadas arriba."
         )
+    h_tables = [t for t in tables if t.startswith("h_")]
+    if h_tables:
+        lines.append(
+            "- Existen vistas homologadas `h_*` con nombres de columnas en snake_case; priorízalas para consultas NL->SQL si cubren la pregunta."
+        )
+    if "h_agencies" in tset:
+        lines.append(
+            "- Resultados por agencia: haz JOIN `h_agencies` ON hecho.id_agency = h_agencies.id_agency y muestra "
+            "`h_agencies.name AS agency_name` (nombre legible). Evita dejar solo id_agency en el SELECT salvo que pidan el id."
+        )
     lines.append(
         '- Identificadores en camelCase requieren comillas dobles en PostgreSQL (p. ej. "idAgency", "ndClientDMS").'
     )
+    if os.getenv("AGENTE_DWH_INCLUDE_NOISE_COLUMNS", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        lines.append(
+            "- El exportador puede omitir columnas operativas de integración (Salesforce) para reducir ruido en el prompt del LLM."
+        )
     return "\n".join(lines)
+
+
+def _collect_distinct_value_profiles(cur: psycopg.Cursor, tables: list[str]) -> dict[str, list[str]]:
+    """Extrae ejemplos de valores por columna para mejorar precisión del LLM."""
+    enabled = os.getenv("AGENTE_DWH_INCLUDE_PROFILED_VALUES", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not enabled:
+        return {}
+
+    limit = int(os.getenv("AGENTE_DWH_PROFILED_VALUES_LIMIT", "12"))
+    tset = set(tables)
+    prof: dict[str, list[str]] = {}
+    for table, column in _PROFILED_CATEGORICAL_COLUMNS:
+        if table not in tset:
+            continue
+        cur.execute(
+            f"""
+            SELECT DISTINCT "{column}"::text
+            FROM "{table}"
+            WHERE "{column}" IS NOT NULL
+              AND TRIM("{column}"::text) <> ''
+            ORDER BY 1
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        values = [r[0] for r in cur.fetchall()]
+        if values:
+            prof[f"{table}.{column}"] = values
+    return prof
 
 
 def main() -> int:
@@ -137,6 +212,13 @@ def main() -> int:
 
     hint_path = Path(os.getenv("DWH_SCHEMA_HINT_OUT", str(ROOT / "schema_hint_dwh.txt")))
     json_path = Path(os.getenv("DWH_SCHEMA_JSON_OUT", str(ROOT / "dwh_schema_catalog.json")))
+
+    include_noise_columns = os.getenv("AGENTE_DWH_INCLUDE_NOISE_COLUMNS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     with psycopg.connect(pg_url) as conn:
         conn.autocommit = True
@@ -153,12 +235,21 @@ def main() -> int:
             """)
             fk_rows = cur.fetchall()
 
-            cur.execute("""
-                SELECT table_name FROM information_schema.tables
-                WHERE table_schema='public' AND table_type='BASE TABLE'
+            cur.execute(
+                """
+                SELECT table_name, table_type
+                FROM information_schema.tables
+                WHERE table_schema='public'
+                  AND (
+                    table_type = 'BASE TABLE'
+                    OR (table_type = 'VIEW' AND table_name LIKE 'h\\_%' ESCAPE '\\')
+                  )
                 ORDER BY table_name
-            """)
-            tables = [r[0] for r in cur.fetchall()]
+                """
+            )
+            rows = cur.fetchall()
+            tables = [r[0] for r in rows]
+            table_kinds = {r[0]: r[1] for r in rows}
 
             meta: dict = {
                 "database": db_name,
@@ -168,12 +259,13 @@ def main() -> int:
             }
 
             for t in tables:
+                relkind = "r" if table_kinds.get(t) == "BASE TABLE" else "v"
                 cur.execute("""
                     SELECT pg_catalog.obj_description(c.oid, 'pg_class')
                     FROM pg_catalog.pg_class c
                     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                    WHERE n.nspname = 'public' AND c.relname = %s AND c.relkind = 'r'
-                """, (t,))
+                    WHERE n.nspname = 'public' AND c.relname = %s AND c.relkind = %s
+                """, (t, relkind))
                 table_comment_row = cur.fetchone()
                 table_comment = (table_comment_row[0] or "").strip() or None
 
@@ -197,6 +289,8 @@ def main() -> int:
                 cols = []
                 for r in cur.fetchall():
                     cname = r[0]
+                    if not include_noise_columns and cname in _DEFAULT_NOISE_COLUMNS:
+                        continue
                     cd = col_comments.get(cname, "")
                     entry = {
                         "name": cname,
@@ -213,6 +307,7 @@ def main() -> int:
                 n = cur.fetchone()[0]
                 meta["tables"][t] = {
                     "row_count_estimate": n,
+                    "object_type": table_kinds.get(t, "BASE TABLE"),
                     "table_comment": table_comment,
                     "columns": cols,
                 }
@@ -228,6 +323,7 @@ def main() -> int:
                 {"from_table": r[0].replace("public.", ""), "definition": r[1], "name": r[2]}
                 for r in cur.fetchall()
             ]
+            meta["value_profiles"] = _collect_distinct_value_profiles(cur, tables)
 
     preamble = build_preamble(db_name, tables, meta)
     lines = [
@@ -240,10 +336,11 @@ def main() -> int:
     for src, defn in fk_rows:
         lines.append(f"- {src}: {defn}")
     lines.append("")
-    lines.append("=== Tablas y columnas ===")
+    lines.append("=== Tablas/vistas y columnas ===")
     for t in tables:
         tc = meta["tables"][t]
-        lines.append(f"\n{t} (~{tc['row_count_estimate']} filas)")
+        kind = tc.get("object_type", "BASE TABLE")
+        lines.append(f"\n{t} [{kind}] (~{tc['row_count_estimate']} filas)")
         tc_desc = tc.get("table_comment")
         if tc_desc:
             lines.append(f"  » {tc_desc}")
@@ -254,6 +351,14 @@ def main() -> int:
             if cdesc:
                 line += f" — {cdesc}"
             lines.append(line)
+
+    value_profiles = meta.get("value_profiles", {})
+    if value_profiles:
+        lines.append("")
+        lines.append("=== Valores de referencia (muestras útiles) ===")
+        for key in sorted(value_profiles):
+            vals = ", ".join(repr(v) for v in value_profiles[key])
+            lines.append(f"- {key}: {vals}")
 
     hint_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")

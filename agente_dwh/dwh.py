@@ -19,6 +19,34 @@ from .sql_guard import (
     vgd_execution_guard_enabled,
 )
 
+# Identificadores mixtos (camelCase/PascalCase) que en PostgreSQL requieren comillas dobles.
+_PG_MIXED_CASE_IDENTIFIERS: tuple[str, ...] = (
+    "idAgency",
+    "ndClientDMS",
+    "IsMatriz",
+    "tokenAppoinments",
+    "customerName",
+    "statusDescription",
+    "typeDescription",
+    "sendedSalesForce",
+    "idSalesForce",
+    "resultSF",
+    "sf_jsonRequest",
+    "IdStatus",
+    "idServiceType",
+    "serviceType",
+    "serviceTypeDescription",
+    "serviceTypeDetail",
+    "startDateTime",
+    "endDateTime",
+    "ndConsultant",
+    "consultantName",
+    "consultantMail",
+    "seller_Name",
+    "seller_Email",
+    "Est_Civil",
+)
+
 
 @dataclass
 class DwhClient:
@@ -58,9 +86,9 @@ class DwhClient:
     def execute_select(self, sql: str) -> list[dict[str, Any]]:
         """Ejecuta una consulta de solo lectura y devuelve filas en formato dict."""
         stripped = sql.strip()
-        validate_read_only_sql(stripped)
+        validated = validate_read_only_sql(stripped)
         start = time.perf_counter()
-        normalized_sql = self._normalize_sql_for_dialect(stripped)
+        normalized_sql = self._normalize_sql_for_dialect(validated)
         if self.dialect_name == "postgresql" and vgd_execution_guard_enabled(
             database_url=str(self.engine.url)
         ):
@@ -162,6 +190,9 @@ class DwhClient:
         if self.dialect_name == "sqlite":
             normalized = self._normalize_sqlite_sql(normalized)
         elif self.dialect_name == "postgresql":
+            normalized = self._quote_postgresql_mixed_case_identifiers(normalized)
+            normalized = self._rewrite_postgresql_idagency_equality_cast(normalized)
+            normalized = self._rewrite_postgresql_group_by_year_alias(normalized)
             normalized = self._rewrite_postgresql_count_empty_parentheses(normalized)
             normalized = self._rewrite_postgresql_mysql_style_date_parts(normalized)
             normalized = self._rewrite_postgresql_invalid_interval_literal_cast(normalized)
@@ -169,6 +200,112 @@ class DwhClient:
             normalized = self._rewrite_postgresql_round_two_arg(normalized)
 
         return normalized
+
+    def _quote_postgresql_mixed_case_identifiers(self, sql: str) -> str:
+        """
+        PostgreSQL pliega identificadores sin comillas a minúsculas.
+        Si el LLM emite `idAgency` sin comillas, termina buscando `idagency`.
+        Este normalizador lo corrige a `"idAgency"` fuera de literales/comillas.
+        """
+        idset = set(_PG_MIXED_CASE_IDENTIFIERS)
+        out: list[str] = []
+        i = 0
+        n = len(sql)
+        state = "normal"  # normal | sq | dq
+
+        while i < n:
+            c = sql[i]
+            if state == "normal":
+                if c == "'":
+                    state = "sq"
+                    out.append(c)
+                    i += 1
+                    continue
+                if c == '"':
+                    state = "dq"
+                    out.append(c)
+                    i += 1
+                    continue
+                if c.isalpha() or c == "_":
+                    j = i + 1
+                    while j < n and (sql[j].isalnum() or sql[j] == "_"):
+                        j += 1
+                    token = sql[i:j]
+                    if token in idset:
+                        out.append(f'"{token}"')
+                    else:
+                        out.append(token)
+                    i = j
+                    continue
+                out.append(c)
+                i += 1
+                continue
+            if state == "sq":
+                out.append(c)
+                if c == "'" and i + 1 < n and sql[i + 1] == "'":
+                    out.append(sql[i + 1])
+                    i += 2
+                    continue
+                if c == "'":
+                    state = "normal"
+                i += 1
+                continue
+            if state == "dq":
+                out.append(c)
+                if c == '"' and i + 1 < n and sql[i + 1] == '"':
+                    out.append(sql[i + 1])
+                    i += 2
+                    continue
+                if c == '"':
+                    state = "normal"
+                i += 1
+                continue
+
+        return "".join(out)
+
+    def _rewrite_postgresql_idagency_equality_cast(self, sql: str) -> str:
+        """
+        En algunos snapshots del DWH, idAgency no tiene el mismo tipo entre tablas
+        (p. ej. invoices/services bigint vs agencies/customers text). Para evitar
+        errores de operador en joins/filtros, castea comparaciones de idAgency a text.
+        """
+        pattern = re.compile(
+            r'(?P<l>[A-Za-z_][A-Za-z0-9_]*\s*\.\s*"idAgency")\s*=\s*(?P<r>[A-Za-z_][A-Za-z0-9_]*\s*\.\s*"idAgency")',
+            flags=re.IGNORECASE,
+        )
+
+        def repl(match: re.Match[str]) -> str:
+            left = re.sub(r"\s+", "", match.group("l"))
+            right = re.sub(r"\s+", "", match.group("r"))
+            if "::text" in left.lower() and "::text" in right.lower():
+                return match.group(0)
+            return f"{left}::text = {right}::text"
+
+        return pattern.sub(repl, sql)
+
+    def _rewrite_postgresql_group_by_year_alias(self, sql: str) -> str:
+        """
+        Corrige consultas donde se selecciona `... AS year` (EXTRACT) pero el GROUP BY
+        omite ese alias, lo que rompe en PostgreSQL.
+        """
+        lower = sql.lower()
+        if " as year" not in lower or "group by" not in lower or "extract(year from" not in lower:
+            return sql
+
+        m = re.search(
+            r"(?is)\bgroup\s+by\b(?P<group>.*?)(?=\border\s+by\b|\blimit\b|$)",
+            sql,
+        )
+        if not m:
+            return sql
+
+        group_part = m.group("group")
+        group_lower = group_part.lower()
+        if " year" in group_lower or re.search(r"(?i)\b1\b", group_part):
+            return sql
+
+        new_group = group_part.rstrip() + ", year "
+        return sql[: m.start("group")] + new_group + sql[m.end("group") :]
 
     def _normalize_sqlite_sql(self, sql: str) -> str:
         """Traduce funciones frecuentes de otros motores a SQLite."""

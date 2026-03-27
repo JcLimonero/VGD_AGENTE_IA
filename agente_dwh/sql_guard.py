@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from typing import Pattern
 
 # Operaciones de escritura / DDL / privilegios / ejecución remota.
@@ -213,7 +214,28 @@ def _semicolon_positions_outside_quotes(sql: str) -> list[int]:
     return pos
 
 
+def _truncate_to_first_statement(sql_no_comments: str) -> str:
+    """
+    Deja solo la primera sentencia: recorta texto tras el primer ';' fuera de literales.
+
+    - Varios ';' fuera de literales -> error (varias sentencias).
+    - Un ';' y texto detrás (p. ej. prosa del LLM) -> se descarta lo que sigue al primer ';'.
+    """
+    s = sql_no_comments.strip()
+    positions = _semicolon_positions_outside_quotes(s)
+    if len(positions) > 1:
+        raise ValueError(
+            "Solo se permite una sentencia SQL: se encontraron varios punto y coma fuera de literales."
+        )
+    if len(positions) == 1:
+        after = s[positions[0] + 1 :]
+        if after.strip():
+            return s[: positions[0] + 1].strip()
+    return s
+
+
 def _validate_single_statement(sql_no_comments: str) -> None:
+    """Comprueba que no quede texto tras un único ';' final (tras truncar prosa)."""
     positions = _semicolon_positions_outside_quotes(sql_no_comments)
     if len(positions) > 1:
         raise ValueError(
@@ -232,11 +254,15 @@ def _starts_with_select_or_with(stripped: str) -> bool:
     return bool(re.match(r"(?is)\A(WITH|SELECT)\b", s))
 
 
-def validate_read_only_sql(sql: str) -> None:
+def validate_read_only_sql(sql: str) -> str:
     """
+    Valida SQL de solo lectura y devuelve el texto normalizado listo para ejecutar
+    (sin comentarios, una sola sentencia, sin punto y coma final).
+
     Lanza ValueError si la consulta no es de solo lectura o muestra patrones de riesgo.
 
     - Una sola sentencia (punto y coma solo al final, permitido en cadena dentro de literales).
+    - Texto tras el primer ';' (p. ej. explicación del modelo) se descarta.
     - Sin bytes nulos.
     - Comentarios eliminados para analisis; palabras prohibidas buscadas fuera de literales.
     """
@@ -245,7 +271,7 @@ def validate_read_only_sql(sql: str) -> None:
     if "\x00" in sql:
         raise ValueError("La consulta contiene caracteres no permitidos.")
 
-    without_comments = _strip_sql_comments(sql)
+    without_comments = _truncate_to_first_statement(_strip_sql_comments(sql))
     _validate_single_statement(without_comments)
 
     trimmed = without_comments.strip().rstrip(";").strip()
@@ -266,12 +292,24 @@ def validate_read_only_sql(sql: str) -> None:
         if pattern.search(upper_masked):
             raise ValueError(f"La consulta contiene un patron no permitido: {label}")
 
+    return trimmed
+
 
 # Patrón: COUNT() sin expresión dentro del paréntesis (inválido en PostgreSQL).
 _COUNT_EMPTY_RE = re.compile(r"(?is)\bCOUNT\s*\(\s*\)")
 
-# Tablas del tutorial/demo que no existen en vgd_dwh_prod_migracion (evita ejecutar SQL inválido).
-_FORBIDDEN_DEMO_TABLES_VGD: tuple[str, ...] = ("SALES", "VEHICLES")
+def _forbidden_tables_from_env() -> tuple[str, ...]:
+    """
+    Lista opcional de tablas prohibidas para prevalidación (separadas por coma).
+    Ejemplo:
+      AGENTE_DWH_FORBIDDEN_TABLES=sales,vehicles
+
+    Por defecto no bloquea ninguna tabla por nombre para evitar acoplarse a un esquema legacy.
+    """
+    raw = os.getenv("AGENTE_DWH_FORBIDDEN_TABLES", "").strip()
+    if not raw:
+        return ()
+    return tuple(x.strip().upper() for x in raw.split(",") if x.strip())
 
 
 def _sql_references_table(upper_masked: str, table_upper: str) -> bool:
@@ -281,6 +319,189 @@ def _sql_references_table(upper_masked: str, table_upper: str) -> bool:
         or re.search(rf"(?is)\bJOIN\s+{schema_tbl}\b", upper_masked)
         or re.search(rf"(?is),\s*{table_upper}\b", upper_masked)
     )
+
+
+_TABLE_REF_RE = re.compile(
+    r'(?is)\b(?:FROM|JOIN)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?)(?:\.(?:"?[A-Za-z_][A-Za-z0-9_]*"?))?)'
+)
+_CTE_NAME_RE = re.compile(r'(?is)\b("?[A-Za-z_][A-Za-z0-9_]*"?)\s+AS\s*\(')
+_NON_TABLE_TOKENS = {
+    "lateral",
+    "select",
+    "unnest",
+    "generate_series",
+    "values",
+    # Tipos / palabras reservadas que a veces el LLM coloca tras JOIN/FROM por error.
+    "timestamp",
+    "timestamptz",
+    "date",
+    "time",
+    "interval",
+    "boolean",
+    "bool",
+    "varchar",
+    "char",
+    "character",
+    "text",
+    "int",
+    "integer",
+    "bigint",
+    "smallint",
+    "numeric",
+    "decimal",
+    "float",
+    "real",
+    "double",
+    "precision",
+    "serial",
+    "bigserial",
+    "uuid",
+    "json",
+    "jsonb",
+    "xml",
+    "cast",
+}
+
+
+def _blank_special_calls_with_inner_from(sql: str) -> str:
+    """Sustituye por espacios EXTRACT/SUBSTRING/TRIM/OVERLAY(...) para no confundir su FROM con FROM de relación."""
+    chars = list(sql)
+    n = len(sql)
+    i = 0
+    state = "normal"
+
+    def find_matching_close(open_idx: int) -> int:
+        depth = 0
+        j = open_idx
+        st = "normal"
+        while j < n:
+            c = sql[j]
+            if st == "normal":
+                if c == "'":
+                    st = "sq"
+                elif c == '"':
+                    st = "dq"
+                elif c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return j
+                j += 1
+                continue
+            if st == "sq":
+                if c == "'" and j + 1 < n and sql[j + 1] == "'":
+                    j += 2
+                elif c == "'":
+                    st = "normal"
+                    j += 1
+                else:
+                    j += 1
+                continue
+            if st == "dq":
+                if c == '"' and j + 1 < n and sql[j + 1] == '"':
+                    j += 2
+                elif c == '"':
+                    st = "normal"
+                    j += 1
+                else:
+                    j += 1
+                continue
+        return n - 1
+
+    while i < n:
+        c = sql[i]
+        if state == "normal":
+            if c == "'":
+                state = "sq"
+                i += 1
+                continue
+            if c == '"':
+                state = "dq"
+                i += 1
+                continue
+            m = re.match(
+                r"(?is)\b(?:EXTRACT|SUBSTRING|TRIM|OVERLAY)\s*\(",
+                sql[i:],
+            )
+            if m:
+                start = i
+                open_paren = i + m.end() - 1
+                close_paren = find_matching_close(open_paren)
+                for k in range(start, close_paren + 1):
+                    ch = chars[k]
+                    if ch not in "'\"":
+                        chars[k] = " "
+                i = close_paren + 1
+                continue
+            i += 1
+            continue
+        if state == "sq":
+            if c == "'" and i + 1 < n and sql[i + 1] == "'":
+                i += 2
+            elif c == "'":
+                state = "normal"
+                i += 1
+            else:
+                i += 1
+            continue
+        if state == "dq":
+            if c == '"' and i + 1 < n and sql[i + 1] == '"':
+                i += 2
+            elif c == '"':
+                state = "normal"
+                i += 1
+            else:
+                i += 1
+            continue
+    return "".join(chars)
+
+
+def _normalize_ident(token: str) -> str:
+    t = token.strip()
+    if t.startswith('"') and t.endswith('"') and len(t) >= 2:
+        t = t[1:-1].replace('""', '"')
+    return t
+
+
+def _enforce_only_h_tables(sql_no_comments: str) -> None:
+    """
+    Restringe FROM/JOIN a objetos homologados `h_*` para el agente SQL.
+
+    Activación por entorno:
+      AGENTE_DWH_ONLY_H_TABLES=1
+    """
+    enabled = os.getenv("AGENTE_DWH_ONLY_H_TABLES", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if not enabled:
+        return
+
+    scan_sql = _blank_special_calls_with_inner_from(sql_no_comments)
+    ctes = {
+        _normalize_ident(m.group(1)).lower()
+        for m in _CTE_NAME_RE.finditer(sql_no_comments)
+    }
+    offenders: set[str] = set()
+    for m in _TABLE_REF_RE.finditer(scan_sql):
+        raw_ref = m.group(1)
+        ref = _normalize_ident(raw_ref)
+        parts = [_normalize_ident(p) for p in ref.split(".")]
+        obj = parts[-1].lower() if parts else ""
+        if not obj or obj in _NON_TABLE_TOKENS or obj in ctes:
+            continue
+        if not obj.startswith("h_"):
+            offenders.add(obj)
+
+    if offenders:
+        refs = ", ".join(sorted(offenders))
+        raise RuntimeError(
+            "Prevalidación SQL: en este entorno solo se permiten objetos homologados `h_*` en FROM/JOIN. "
+            f"Detectado: {refs}. Usa únicamente vistas h_* del esquema de referencia."
+        )
 
 
 def vgd_execution_guard_enabled(*, database_url: str = "") -> bool:
@@ -313,15 +534,14 @@ def validate_vgd_dwh_sql(sql: str) -> None:
     masked = _mask_quoted_for_scan(without_comments)
     upper = masked.upper()
 
-    for tbl in _FORBIDDEN_DEMO_TABLES_VGD:
+    for tbl in _forbidden_tables_from_env():
         if _sql_references_table(upper, tbl):
             raise RuntimeError(
-                "Prevalidación SQL: en este DWH no existen las tablas «sales» ni «vehicles» del dataset demo. "
-                "Usa «invoices» (facturación; complementa con «orders» o «comissions» si la pregunta lo pide) "
-                "en lugar de «sales», y «inventory» en lugar de «vehicles». "
-                "Une hechos a «agencies» con t.\"idAgency\" = a.\"idAgency\" (no agencies.id = sales.customer_id). "
-                "En PostgreSQL usa >= para comparar fechas, no el carácter Unicode ≥."
+                f"Prevalidación SQL: la tabla «{tbl.lower()}» está marcada como no permitida para este entorno "
+                "(AGENTE_DWH_FORBIDDEN_TABLES). Usa únicamente tablas del esquema de referencia."
             )
+
+    _enforce_only_h_tables(without_comments)
 
     if _COUNT_EMPTY_RE.search(masked):
         raise RuntimeError(

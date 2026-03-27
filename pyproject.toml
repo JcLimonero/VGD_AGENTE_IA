@@ -22,6 +22,10 @@ dependencies = [
 postgres = [
   "psycopg[binary]>=3.1",
 ]
+mysql_migration = [
+  "pymysql>=1.1",
+  "psycopg[binary]>=3.1",
+]
 dev = [
   "pytest>=7.0",
   "watchdog>=3.0",
@@ -30,3 +34,7 @@ dev = [
 [project.scripts]
 agente-dwh = "agente_dwh.cli:main"
 agente-dwh-web = "agente_dwh.web:main"
+
+# Solo `agente_dwh` es codigo Python; `proyecto_dashboard/` son docs (evita error de discovery).
+[tool.setuptools.packages.find]
+include = ["agente_dwh*"]

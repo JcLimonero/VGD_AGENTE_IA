@@ -82,6 +82,41 @@ Reglas obligatorias:
     y luego filtra o une sobre ese resultado.
 """
 
+# Prompt unificado y neutral por esquema: evita referencias rígidas a tablas legacy.
+SYSTEM_PROMPT_SCHEMA_AWARE = """Eres un asistente experto en SQL para analytics.
+Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
+
+Reglas obligatorias:
+1) Responde solo con una consulta SQL (sin markdown ni texto adicional).
+2) Usa únicamente tablas y columnas del «Esquema de referencia» provisto en el prompt de usuario.
+3) No inventes tablas, vistas ni columnas.
+4) Usa solo lectura (SELECT / WITH). Nunca INSERT/UPDATE/DELETE/DDL.
+5) Respeta el motor indicado en «Motor SQL objetivo».
+6) Para PostgreSQL: EXTRACT(YEAR FROM col), COALESCE, COUNT(*) o COUNT(col); nunca COUNT() vacío.
+7) Si no se puede responder con el esquema dado, devuelve:
+   SELECT 'No se puede resolver con SQL' AS mensaje;
+8) Si aplica a resultados tabulares amplios, incluye LIMIT razonable (<= 1000).
+9) Si el esquema incluye vistas homologadas `h_*`, usa EXCLUSIVAMENTE `h_*` en FROM/JOIN.
+10) Desglose «por agencia» / sucursal / concesionario: si existe `h_agencies` en el esquema, haz
+    `JOIN h_agencies a ON <hecho>.id_agency = a.id_agency` y en el SELECT muestra el nombre legible
+    `a.name AS agency_name` (o `nombre_agencia`). No devuelvas solo `id_agency` salvo que el usuario pida explícitamente el id.
+"""
+
+SQL_FIX_PROMPT_SCHEMA_AWARE = """Eres un asistente experto en corrección de SQL.
+Debes corregir una consulta SQL que falló al ejecutarse.
+
+Reglas obligatorias:
+1) Devuelve SOLO SQL (sin markdown ni texto adicional).
+2) Mantén la intención de negocio original.
+3) Usa únicamente tablas/columnas del «Esquema de referencia».
+4) Respeta el motor SQL indicado.
+5) Solo lectura (SELECT / WITH).
+6) Corrige funciones o sintaxis no válidas del dialecto (por ejemplo en PostgreSQL: YEAR() -> EXTRACT).
+7) Corrige COUNT() vacío a COUNT(*) o COUNT(columna).
+8) Si el esquema incluye vistas homologadas `h_*`, corrige la consulta para usar solo `h_*` en FROM/JOIN.
+9) Si la intención es por agencia y falta el nombre, añade JOIN a `h_agencies` y expón `a.name AS agency_name`.
+"""
+
 SYSTEM_PROMPT_VGD = """Eres un asistente experto en SQL para analytics.
 Tu tarea es responder EXCLUSIVAMENTE con una consulta SQL de solo lectura.
 
@@ -194,7 +229,7 @@ def resolve_llm_profile(schema_hint_file: str = "", *, dwh_url: str | None = Non
     url = (dwh_url if dwh_url is not None else os.getenv("DWH_URL", "")).lower()
     if "vgd_dwh" in url:
         return "vgd"
-    return "vgd"
+    return "default"
 
 
 @dataclass
@@ -218,11 +253,15 @@ class DwhAgent:
         self._schema_hint = schema_hint.strip()
         self._llm_profile = llm_profile if llm_profile in ("default", "vgd") else "vgd"
 
+    def _homologated_views_present(self) -> bool:
+        hint = self._schema_hint.lower()
+        return "h_" in hint and ("tablas/vistas" in hint or "h_" in hint)
+
     def _system_prompt(self) -> str:
-        return SYSTEM_PROMPT_VGD if self._llm_profile == "vgd" else SYSTEM_PROMPT
+        return SYSTEM_PROMPT_SCHEMA_AWARE
 
     def _sql_fix_system_prompt(self) -> str:
-        return SQL_FIX_PROMPT_VGD if self._llm_profile == "vgd" else SQL_FIX_PROMPT
+        return SQL_FIX_PROMPT_SCHEMA_AWARE
 
     def _dialect_guidance(self) -> str:
         dialect = self._dwh.dialect_name
@@ -254,15 +293,27 @@ class DwhAgent:
 
     def _build_user_prompt(self, question: str) -> str:
         schema_context = self._schema_hint or "No se proporcionó esquema."
+        only_h_note = ""
+        if self._homologated_views_present():
+            only_h_note = (
+                "\nRestricción del entorno: usa EXCLUSIVAMENTE vistas homologadas `h_*` "
+                "en FROM/JOIN; no uses tablas base."
+            )
         return (
             f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
             f"Pregunta de negocio:\n{question}\n\n"
             "Devuelve solamente SQL válido para el motor indicado arriba (mismo dialecto que el DWH)."
+            f"{only_h_note}"
         )
 
     def _build_fix_prompt(self, question: str, previous_sql: str, execution_error: str) -> str:
         schema_context = self._schema_hint or "No se proporcionó esquema."
+        only_h_note = ""
+        if self._homologated_views_present():
+            only_h_note = (
+                "\nRestricción del entorno: en FROM/JOIN usa solo vistas homologadas `h_*`."
+            )
         return (
             f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
@@ -270,6 +321,7 @@ class DwhAgent:
             f"SQL que falló:\n{previous_sql}\n\n"
             f"Error de ejecución:\n{execution_error}\n\n"
             "Devuelve SOLO una versión corregida del SQL para el motor indicado arriba."
+            f"{only_h_note}"
         )
 
     def get_cache_stats(self) -> dict[str, Any]:
@@ -307,11 +359,13 @@ class DwhAgent:
                 clean_sql_output(raw_output),
                 vehicle_focus,
             )
-            validate_read_only_sql(generated_sql)
+            normalized_sql = validate_read_only_sql(generated_sql)
             try:
-                validate_vgd_dwh_sql(generated_sql)
-                rows = self._dwh.execute_select(generated_sql)
-                result = QueryResult(question=display_question, generated_sql=generated_sql, rows=rows)
+                validate_vgd_dwh_sql(normalized_sql)
+                rows = self._dwh.execute_select(normalized_sql)
+                result = QueryResult(
+                    question=display_question, generated_sql=normalized_sql, rows=rows
+                )
                 record_query_event(
                     source="agent",
                     success=True,
@@ -335,10 +389,12 @@ class DwhAgent:
                     clean_sql_output(fixed_raw),
                     vehicle_focus,
                 )
-                validate_read_only_sql(fixed_sql)
-                validate_vgd_dwh_sql(fixed_sql)
-                rows = self._dwh.execute_select(fixed_sql)
-                result = QueryResult(question=display_question, generated_sql=fixed_sql, rows=rows)
+                normalized_fix = validate_read_only_sql(fixed_sql)
+                validate_vgd_dwh_sql(normalized_fix)
+                rows = self._dwh.execute_select(normalized_fix)
+                result = QueryResult(
+                    question=display_question, generated_sql=normalized_fix, rows=rows
+                )
                 record_query_event(
                     source="agent",
                     success=True,

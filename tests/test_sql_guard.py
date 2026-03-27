@@ -18,10 +18,16 @@ class SqlGuardTests(unittest.TestCase):
         self.assertEqual(clean_sql_output(raw).strip(), "SELECT 1 AS x;")
 
     def test_select_simple_ok(self) -> None:
-        validate_read_only_sql("SELECT 1")
+        self.assertEqual(validate_read_only_sql("SELECT 1"), "SELECT 1")
 
     def test_select_with_trailing_semicolon_ok(self) -> None:
-        validate_read_only_sql("SELECT 1;")
+        self.assertEqual(validate_read_only_sql("SELECT 1;"), "SELECT 1")
+
+    def test_trailing_prose_after_semicolon_truncated(self) -> None:
+        out = validate_read_only_sql(
+            "SELECT 1 AS n; Esta es una nota del modelo, no es SQL."
+        )
+        self.assertEqual(out, "SELECT 1 AS n")
 
     def test_with_cte_ok(self) -> None:
         validate_read_only_sql("WITH a AS (SELECT 1 AS n) SELECT n FROM a")
@@ -37,9 +43,10 @@ class SqlGuardTests(unittest.TestCase):
             validate_read_only_sql("SELECT 1 /**/DELETE/**/FROM customers")
         self.assertIn("DELETE", str(ctx.exception).upper())
 
-    def test_double_statement_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            validate_read_only_sql("SELECT 1; DROP TABLE customers")
+    def test_second_statement_after_semicolon_truncated(self) -> None:
+        """Solo se ejecuta la primera sentencia; el resto se descarta (seguridad)."""
+        out = validate_read_only_sql("SELECT 1 AS x; DROP TABLE customers")
+        self.assertEqual(out, "SELECT 1 AS x")
 
     def test_drop_rejected(self) -> None:
         with self.assertRaises(ValueError) as ctx:
@@ -86,13 +93,23 @@ class VgdSqlGuardTests(unittest.TestCase):
     def test_literal_from_sales_not_false_positive(self) -> None:
         validate_vgd_dwh_sql("SELECT 'FROM sales' AS hint FROM agencies")
 
+    @patch.dict(
+        os.environ,
+        {"AGENTE_DWH_FORBIDDEN_TABLES": "sales,vehicles"},
+        clear=False,
+    )
     def test_from_sales_rejected(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:
             validate_vgd_dwh_sql(
                 "SELECT COUNT(*)::bigint AS n FROM sales s JOIN agencies a ON TRUE"
             )
-        self.assertIn("invoices", str(ctx.exception).lower())
+        self.assertIn("sales", str(ctx.exception).lower())
 
+    @patch.dict(
+        os.environ,
+        {"AGENTE_DWH_FORBIDDEN_TABLES": "sales,vehicles"},
+        clear=False,
+    )
     def test_from_vehicles_rejected(self) -> None:
         with self.assertRaises(RuntimeError):
             validate_vgd_dwh_sql("SELECT 1 FROM vehicles v LIMIT 1")
@@ -103,6 +120,18 @@ class VgdSqlGuardTests(unittest.TestCase):
     @patch.dict(os.environ, {"AGENTE_DWH_DISABLE_SQL_GUARD": "1"}, clear=False)
     def test_vgd_execution_guard_can_disable(self) -> None:
         self.assertFalse(vgd_execution_guard_enabled())
+
+    @patch.dict(
+        os.environ,
+        {"AGENTE_DWH_ONLY_H_TABLES": "1"},
+        clear=False,
+    )
+    def test_only_h_tables_allows_extract_from_timestamp_literal(self) -> None:
+        """EXTRACT(... FROM timestamp '...') no debe confundirse con FROM de relación."""
+        validate_vgd_dwh_sql(
+            "SELECT EXTRACT(YEAR FROM timestamp '2024-01-01') AS y, COUNT(*) "
+            "FROM h_orders GROUP BY 1"
+        )
 
 
 if __name__ == "__main__":
