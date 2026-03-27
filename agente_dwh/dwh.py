@@ -857,6 +857,7 @@ class DwhClient:
         normalized = self._rewrite_service_appointments_aliases(normalized)
         normalized = self._rewrite_sales_status_aliases(normalized)
         normalized = self._rewrite_insurance_policies_policy_status(normalized)
+        normalized = sql_rewrites.rewrite_service_type_equality_to_ilike(normalized)
 
         if self.dialect_name == "sqlite":
             normalized = self._normalize_sqlite_sql(normalized)

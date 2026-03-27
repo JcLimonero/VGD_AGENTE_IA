@@ -159,6 +159,29 @@ Reglas obligatorias:
     SELECT i.billing_date, i.vin FROM h_invoices i
     JOIN h_customers c ON CAST(c.id AS TEXT) = i.nd_client_dms
     WHERE c.bussines_name = 'NOMBRE' ORDER BY i.billing_date;
+13) h_services NO tiene nd_client_dms ni ninguna referencia directa a cliente.
+    El único vínculo es el VIN. Para consultar servicios de un cliente específico,
+    obtén primero los VINs del cliente desde h_customer_vehicle y filtra h_services por vin:
+    SELECT s.* FROM h_services s
+    WHERE s.vin IN (
+        SELECT cv.vin FROM h_customer_vehicle cv
+        JOIN h_customers c ON cv.nd_client_dms = c.nd_client_dms
+        WHERE c.bussines_name = 'NOMBRE'
+    )
+    NUNCA escribas s.nd_client_dms ni hagas JOIN de h_services a h_customers directamente.
+14) Para saber qué vehículos TIENE un cliente (posesión actual, no historial de ventas),
+    usa SIEMPRE h_customer_vehicle:
+    SELECT cv.vin, cv.brand, cv.model, cv.version, cv.year
+    FROM h_customer_vehicle cv
+    JOIN h_customers c ON cv.nd_client_dms = c.nd_client_dms
+    WHERE c.bussines_name = 'NOMBRE'
+    NO uses h_invoices para listar los autos actuales de un cliente.
+15) Filtros por service_type en h_services: usa siempre ILIKE con % y SOLO las palabras
+    clave que el usuario mencionó. NUNCA inventes ni expandas el valor completo del tipo de servicio.
+    NUNCA uses = (igualdad exacta) en service_type.
+    Ejemplo: usuario dice «mantenimiento» → WHERE s.service_type ILIKE '%mantenimiento%'
+    Ejemplo: usuario dice «servicio mecánica» → WHERE s.service_type ILIKE '%mecánica%'
+    Si el usuario da varias palabras clave, usa AND con múltiples ILIKE o una sola con la palabra más específica.
 """
 
 SQL_FIX_PROMPT = """Eres un asistente experto en corrección de SQL.
@@ -217,6 +240,13 @@ Reglas obligatorias:
 13) Si el error es «operator does not exist: text = bigint» en un JOIN con nd_client_dms:
     nd_client_dms es TEXT y h_customers.id es BIGINT; corrige el JOIN a:
     CAST(c.id AS TEXT) = <tabla>.nd_client_dms
+15) Si el error menciona que nd_client_dms no existe en h_services (column s.nd_client_dms does not exist):
+    h_services NO tiene esa columna. Reescribe filtrando por VIN usando subquery:
+    WHERE s.vin IN (
+        SELECT i.vin FROM h_invoices i
+        JOIN h_customers c ON CAST(c.id AS TEXT) = i.nd_client_dms
+        WHERE c.bussines_name = 'NOMBRE'
+    )
 """
 
 
@@ -370,7 +400,9 @@ class DwhAgent:
                 clean_sql_output(raw_output),
                 vehicle_focus,
             )
-            normalized_sql = validate_read_only_sql(generated_sql)
+            normalized_sql = self._dwh._normalize_sql_for_dialect(
+                validate_read_only_sql(generated_sql)
+            )
             try:
                 validate_vgd_dwh_sql(normalized_sql)
                 rows = self._dwh.execute_select(normalized_sql)
@@ -400,7 +432,9 @@ class DwhAgent:
                     clean_sql_output(fixed_raw),
                     vehicle_focus,
                 )
-                normalized_fix = validate_read_only_sql(fixed_sql)
+                normalized_fix = self._dwh._normalize_sql_for_dialect(
+                    validate_read_only_sql(fixed_sql)
+                )
                 validate_vgd_dwh_sql(normalized_fix)
                 rows = self._dwh.execute_select(normalized_fix)
                 result = QueryResult(

@@ -236,6 +236,28 @@ class ErrorFixSubagent:
         fixed = re.sub(r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)id_client\b", r"\1nd_client_dms", fixed)
         fixed = re.sub(r'(?i)(?<!\.)\bid_client\b', "nd_client_dms", fixed)
 
+        # h_services no tiene nd_client_dms: si el error menciona esa columna en h_services,
+        # reemplazar el JOIN directo por el puente h_customer_vehicle.
+        if "nd_client_dms" in err.lower() and "h_services" in fixed.lower():
+            # Detectar alias de h_services
+            svc_aliases = re.findall(
+                r'(?i)\b(?:FROM|JOIN)\s+h_services\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)',
+                fixed,
+            )
+            for sa in svc_aliases:
+                # Reemplazar: JOIN h_customers <ca> ON <sa>.nd_client_dms = ...
+                # por el JOIN correcto a través de h_customer_vehicle
+                fixed = re.sub(
+                    rf'(?i)JOIN\s+h_customers\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+{re.escape(sa)}\."?nd_client_dms"?\s*=\s*CAST\(\1\.id\s+AS\s+TEXT\)',
+                    r'JOIN h_customer_vehicle cv ON ' + sa + r'.vin = cv.vin JOIN h_customers \1 ON cv.nd_client_dms = \1.nd_client_dms',
+                    fixed,
+                )
+                fixed = re.sub(
+                    rf'(?i)JOIN\s+h_customers\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+{re.escape(sa)}\."?nd_client_dms"?\s*=\s*\1\."?nd_client_dms"?',
+                    r'JOIN h_customer_vehicle cv ON ' + sa + r'.vin = cv.vin JOIN h_customers \1 ON cv.nd_client_dms = \1.nd_client_dms',
+                    fixed,
+                )
+
         # Columna inventada agency_id → id_agency (columna real en vistas h_*).
         fixed = re.sub(r'(?i)(\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)agency_id\b', r'\1id_agency', fixed)
         fixed = re.sub(r'(?i)(?<!\.)\bagency_id\b', 'id_agency', fixed)

@@ -438,6 +438,38 @@ def rewrite_postgresql_idagency_equality_cast(sql: str) -> str:
     return pattern.sub(repl, sql)
 
 
+def rewrite_service_type_equality_to_ilike(sql: str) -> str:
+    """
+    Convierte comparaciones exactas de service_type a ILIKE con wildcards usando
+    solo la primera palabra significativa del literal (evita que el LLM expanda
+    el valor con texto inventado como 'MANTENIMIENTO Y SERVICIO MECANICA').
+    service_type = 'VALOR'  →  service_type ILIKE '%primera_palabra%'
+    service_type != 'VALOR' →  service_type NOT ILIKE '%primera_palabra%'
+    """
+    _STOP_WORDS = {"y", "e", "de", "del", "la", "el", "los", "las", "a", "en", "por", "and", "or"}
+
+    def _keyword(literal: str) -> str:
+        """Devuelve la palabra más significativa del literal."""
+        words = [w for w in re.split(r'[\s/]+', literal) if w.lower() not in _STOP_WORDS and len(w) > 2]
+        return words[0] if words else literal
+
+    def to_ilike(m: re.Match[str]) -> str:
+        prefix = m.group(1)
+        neg = m.group(2)
+        literal = m.group(3)
+        op = "NOT ILIKE" if neg in ("!=", "<>") else "ILIKE"
+        keyword = _keyword(literal)
+        return f"{prefix} {op} '%{keyword}%'"
+
+    out = re.sub(
+        r'([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*)?(?:"?service_type"?))\s*(!?=|<>)\s*\'([^\']+)\'',
+        to_ilike,
+        sql,
+        flags=re.IGNORECASE,
+    )
+    return out
+
+
 def rewrite_postgresql_nd_client_dms_cast(sql: str) -> str:
     """
     h_orders/h_invoices/h_services.nd_client_dms es TEXT pero h_customers.id es BIGINT.

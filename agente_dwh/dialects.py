@@ -15,6 +15,7 @@ def normalize_sql_for_dialect(sql: str, dialect_name: str) -> str:
     normalized = sql_rewrites.rewrite_service_appointments_aliases(normalized)
     normalized = sql_rewrites.rewrite_sales_status_aliases(normalized)
     normalized = sql_rewrites.rewrite_insurance_policies_policy_status(normalized)
+    normalized = sql_rewrites.rewrite_service_type_equality_to_ilike(normalized)
 
     if dialect_name == "sqlite":
         normalized = sql_rewrites.normalize_sqlite_sql(normalized)
