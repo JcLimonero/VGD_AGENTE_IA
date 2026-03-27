@@ -132,6 +132,34 @@ class APIClient {
     return response.data
   }
 
+  async createDashboardWidget(
+    dashboardId: string,
+    body: {
+      saved_query_id: string
+      pos_x?: number
+      pos_y?: number
+      width?: number
+      height?: number
+      widget_config?: Record<string, unknown>
+    }
+  ) {
+    const response = await this.client.post(`/api/dashboards/${dashboardId}/widgets`, body)
+    return response.data
+  }
+
+  async patchDashboardWidget(
+    dashboardId: string,
+    widgetId: string,
+    body: { widget_config: Record<string, unknown> }
+  ) {
+    const response = await this.client.patch(`/api/dashboards/${dashboardId}/widgets/${widgetId}`, body)
+    return response.data
+  }
+
+  async deleteDashboardWidget(dashboardId: string, widgetId: string) {
+    await this.client.delete(`/api/dashboards/${dashboardId}/widgets/${widgetId}`)
+  }
+
   async updateDashboard(dashboardId: string, data: any) {
     const response = await this.client.put(`/api/dashboards/${dashboardId}`, data)
     return response.data

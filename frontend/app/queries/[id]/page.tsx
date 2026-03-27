@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/services/api'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { DataResultTable } from '@/components/DataResultTable'
-import { normalizeSavedQuery } from '@/lib/savedQuery'
+import { normalizeSavedQuery, queryResultFromExecuteApi } from '@/lib/savedQuery'
 import type { Query, QueryResultData } from '@/types'
 
 function apiExecuteErrorMessage(err: unknown): string {
@@ -42,17 +42,7 @@ export default function ExecuteQueryPage() {
     try {
       const raw = await apiClient.executeQuery(id)
       const r = raw as Record<string, unknown>
-      const labels = r.column_labels_es
-      setResult({
-        rows: (r.rows as Record<string, unknown>[]) ?? [],
-        column_names: (r.column_names as string[]) ?? [],
-        column_labels_es:
-          labels && typeof labels === 'object' && !Array.isArray(labels)
-            ? (labels as Record<string, string>)
-            : undefined,
-        total_rows: Number(r.total_rows ?? 0),
-        generated_sql: typeof r.generated_sql === 'string' ? r.generated_sql : sqlSnapshot,
-      })
+      setResult(queryResultFromExecuteApi(r, typeof sqlSnapshot === 'string' ? sqlSnapshot : undefined))
     } catch (e) {
       setResult(null)
       setError(apiExecuteErrorMessage(e))

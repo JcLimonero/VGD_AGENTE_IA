@@ -1,4 +1,4 @@
-import type { Query } from '@/types'
+import type { Query, QueryResultData } from '@/types'
 
 /** La API FastAPI usa title / sql_text / original_question; el UI usa name / sql / description. */
 export function normalizeSavedQuery(raw: Record<string, unknown>): Query {
@@ -26,5 +26,29 @@ export function toQueryUpdatePayload(input: {
     title: input.name.trim(),
     original_question: input.description.trim(),
     sql_text: input.sql.trim(),
+  }
+}
+
+/** Normaliza la respuesta de POST /api/queries/{id}/execute → QueryResultData. */
+export function queryResultFromExecuteApi(
+  raw: Record<string, unknown>,
+  sqlFallback?: string
+): QueryResultData {
+  const labels = raw.column_labels_es
+  const gen = raw.generated_sql
+  return {
+    rows: (raw.rows as Record<string, unknown>[]) ?? [],
+    column_names: (raw.column_names as string[]) ?? [],
+    column_labels_es:
+      labels && typeof labels === 'object' && !Array.isArray(labels)
+        ? (labels as Record<string, string>)
+        : undefined,
+    total_rows: Number(raw.total_rows ?? 0),
+    generated_sql:
+      typeof gen === 'string' && gen.trim()
+        ? gen.trim()
+        : sqlFallback?.trim()
+          ? sqlFallback.trim()
+          : undefined,
   }
 }

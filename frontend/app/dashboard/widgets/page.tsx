@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -22,6 +22,8 @@ import {
 } from 'recharts'
 import { useAuth } from '@/hooks/useAuth'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
+import { DashboardWidgetsGrid } from '@/components/DashboardWidgetsGrid'
+import { SavedQueryWidgetPanel } from '@/components/SavedQueryWidgetPanel'
 
 const MONTHLY = [
   { mes: 'Ene', ventas: 42, meta: 40 },
@@ -58,6 +60,7 @@ const gridStroke = '#334155'
 export default function WidgetShowcasePage() {
   const router = useRouter()
   const { user, isAuthenticated, logout } = useAuth()
+  const [widgetsRefresh, setWidgetsRefresh] = useState(0)
 
   useEffect(() => {
     if (!isAuthenticated) router.push('/auth/login')
@@ -80,7 +83,7 @@ export default function WidgetShowcasePage() {
               📈 Widget showcase
             </h1>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Datos de demostración — mismos patrones que puedes usar en dashboards con Recharts.
+              Vincula consultas guardadas a widgets y revisa abajo los gráficos de demostración con Recharts.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -106,7 +109,10 @@ export default function WidgetShowcasePage() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Métricas */}
+        <SavedQueryWidgetPanel onWidgetAdded={() => setWidgetsRefresh((n) => n + 1)} />
+        <DashboardWidgetsGrid refreshToken={widgetsRefresh} variant="showcase" />
+
+        {/* Métricas (demo) */}
         <section>
           <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Métricas</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

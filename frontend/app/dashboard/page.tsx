@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { useRouter } from 'next/navigation'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
+import { DashboardWidgetsGrid } from '@/components/DashboardWidgetsGrid'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -111,6 +112,10 @@ export default function DashboardPage() {
               Configurar
             </Link>
           </div>
+        </div>
+
+        <div className="mt-10">
+          <DashboardWidgetsGrid />
         </div>
 
         {/* Stats */}

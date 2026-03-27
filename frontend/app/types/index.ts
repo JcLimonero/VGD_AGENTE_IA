@@ -74,6 +74,20 @@ export interface DashboardWidget {
   config: Record<string, any>
 }
 
+/** Fila de `dashboard_widgets` devuelta por la API. */
+export interface ApiDashboardWidget {
+  id: string
+  dashboard_id: string
+  saved_query_id: string
+  pos_x: number
+  pos_y: number
+  width: number
+  height: number
+  display_order: number
+  widget_config: Record<string, unknown>
+  created_at: string
+}
+
 export interface AlertConfig {
   id: string
   name: string

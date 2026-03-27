@@ -9,7 +9,6 @@ import jwt
 from datetime import datetime, timedelta
 from functools import lru_cache
 import os
-import uuid
 import bcrypt
 import json
 from contextlib import asynccontextmanager
@@ -30,6 +29,23 @@ from agente_dwh.column_labels import (
     spanish_column_label,
     spanish_labels_map,
 )
+from agente_dwh.saved_queries_db import (
+    db_create_saved_query,
+    db_delete_saved_query,
+    db_get_saved_query,
+    db_list_saved_queries,
+    db_update_saved_query,
+    user_id_to_int,
+)
+from agente_dwh.dashboard_db import (
+    db_create_dashboard_widget,
+    db_delete_dashboard_widget,
+    db_get_dashboard_detail,
+    db_list_dashboards,
+    db_patch_dashboard_widget,
+    resolve_dashboard_id,
+)
+from psycopg import errors as pg_errors
 
 # ============ Configuración ============
 SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
@@ -79,12 +95,17 @@ class DashboardUpdate(BaseModel):
     layout_cols: Optional[int] = None
 
 class WidgetCreate(BaseModel):
-    saved_query_id: int
+    saved_query_id: str
     pos_x: int = 0
     pos_y: int = 0
     width: int = 6
     height: int = 4
     widget_config: Dict[str, Any] = {}
+
+
+class DashboardWidgetPatch(BaseModel):
+    """Fusión parcial en `widget_config` (JSONB || en servidor)."""
+    widget_config: Dict[str, Any]
 
 class ChatMessage(BaseModel):
     message: str
@@ -438,164 +459,134 @@ async def health_check():
     }
 
 # ============ Endpoints de Queries ============
-# SQL demo alineado con vistas h_* (validate_vgd_dwh_sql rechaza tablas como `sales`).
-_STUB_DEMO_SAVED_SQL = (
-    "SELECT DATE_TRUNC('month', billing_date) AS month, COUNT(*) AS total "
-    "FROM h_invoices "
-    "WHERE state IN ('Vendido', 'Facturacion del vehiculo') "
-    "GROUP BY DATE_TRUNC('month', billing_date) ORDER BY 1"
-)
+def _api_user_int_id(current_user: dict) -> int:
+    try:
+        return user_id_to_int(current_user["id"])
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=401, detail="Usuario inválido") from e
 
 
-def _stub_saved_query_row(query_id: str, user_id: str) -> Dict[str, Any]:
-    """Documento de ejemplo hasta persistir en BD (misma forma que listado/get)."""
-    return {
-        "id": query_id,
-        "user_id": user_id,
-        "title": "Ventas por Mes",
-        "original_question": "¿Cuánto vendimos cada mes?",
-        "sql_text": _STUB_DEMO_SAVED_SQL,
-        "chart_type": "line",
-        "chart_config": {"xAxis": "month", "yAxis": "total"},
-        "refresh_interval": "1 hour",
-        "is_active": True,
-        "tags": ["ventas", "mensual"],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-    }
+def _parse_saved_query_id_param(query_id: str) -> int:
+    try:
+        return int(query_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Query no encontrada")
 
 
-# Queries creadas vía POST (en memoria hasta BD real). id -> documento con user_id.
-_queries_by_id: Dict[str, Dict[str, Any]] = {}
-
-
-def _demo_query_for_list(user_id: Any) -> Dict[str, Any]:
-    """Ítem fijo de ejemplo id=1 (no está en _queries_by_id)."""
-    uid = str(user_id)
-    return {
-        "id": "1",
-        "user_id": uid,
-        "title": "Ventas por Mes",
-        "original_question": "¿Cuánto vendimos cada mes?",
-        "sql_text": _STUB_DEMO_SAVED_SQL,
-        "chart_type": "line",
-        "chart_config": {"xAxis": "month", "yAxis": "total"},
-        "refresh_interval": "1 hour",
-        "is_active": True,
-        "tags": ["ventas", "mensual"],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-
-
-def _list_queries_for_user(user_id: Any) -> list[Dict[str, Any]]:
-    uid = str(user_id)
-    demo = _demo_query_for_list(uid)
-    saved = [d for d in _queries_by_id.values() if str(d.get("user_id")) == uid]
-    saved.sort(key=lambda d: str(d.get("created_at", "")), reverse=True)
-    return [demo] + saved
-
-
-def _get_query_doc(query_id: str, user_id: Any) -> Dict[str, Any] | None:
-    """Documento persistido en memoria o None."""
-    doc = _queries_by_id.get(query_id)
-    if doc is None:
-        return None
-    if str(doc.get("user_id")) != str(user_id):
-        return None
-    return doc
+def _raise_platform_db_error(exc: BaseException) -> None:
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "No se pudo usar la base de datos de plataforma: "
+            f"{exc}. Comprueba PLATFORM_DB_URL y el esquema "
+            "(create_platform_tables.sql o init_platform_db.sh)."
+        ),
+    ) from exc
 
 
 @app.get("/api/queries")
 async def get_queries(current_user: dict = Depends(get_current_user)):
-    """Listar todas las queries del usuario"""
-    # TODO: base de datos real; mientras: demo + creadas en memoria en esta sesión de API
-    return _list_queries_for_user(current_user["id"])
+    """Listar queries guardadas del usuario (PostgreSQL / saved_queries)."""
+    try:
+        return db_list_saved_queries(_api_user_int_id(current_user))
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+
 
 @app.post("/api/queries")
 async def create_query(query: QueryCreate, current_user: dict = Depends(get_current_user)):
     """Crear nueva query"""
-    # Validar SQL
     try:
         validate_read_only_sql(query.sql_text)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"SQL inválido: {str(e)}")
+    try:
+        return db_create_saved_query(
+            _api_user_int_id(current_user),
+            query.title,
+            query.original_question,
+            query.sql_text,
+            query.chart_type,
+            query.chart_config,
+            query.refresh_interval,
+            query.tags,
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
 
-    # TODO: Guardar en base de datos
-    new_query = {
-        "id": str(uuid.uuid4()),
-        "user_id": current_user["id"],
-        "title": query.title,
-        "original_question": query.original_question,
-        "sql_text": query.sql_text,
-        "chart_type": query.chart_type,
-        "chart_config": query.chart_config,
-        "refresh_interval": query.refresh_interval,
-        "is_active": True,
-        "tags": query.tags,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-    _queries_by_id[new_query["id"]] = new_query
-    return new_query
 
 @app.get("/api/queries/{query_id}")
 async def get_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Obtener detalle de una query"""
-    uid = current_user["id"]
-    if query_id == "1":
-        return _stub_saved_query_row("1", str(uid))
-    doc = _get_query_doc(query_id, uid)
+    qid = _parse_saved_query_id_param(query_id)
+    try:
+        doc = db_get_saved_query(qid, _api_user_int_id(current_user))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
     if doc is None:
         raise HTTPException(status_code=404, detail="Query no encontrada")
     return doc
 
+
 @app.put("/api/queries/{query_id}")
 async def update_query(query_id: str, updates: QueryUpdate, current_user: dict = Depends(get_current_user)):
     """Actualizar query"""
-    uid = current_user["id"]
+    qid = _parse_saved_query_id_param(query_id)
     patch = updates.dict(exclude_unset=True)
     if "sql_text" in patch:
         try:
             validate_read_only_sql(patch["sql_text"])
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"SQL inválido: {str(e)}")
-    if query_id == "1":
-        existing = _stub_saved_query_row(query_id, str(uid))
-        merged = {**existing, **patch}
-        merged["updated_at"] = datetime.utcnow().isoformat()
-        return merged
-    doc = _get_query_doc(query_id, uid)
-    if doc is None:
+    try:
+        updated = db_update_saved_query(qid, _api_user_int_id(current_user), patch)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if updated is None:
         raise HTTPException(status_code=404, detail="Query no encontrada")
-    merged = {**doc, **patch}
-    merged["updated_at"] = datetime.utcnow().isoformat()
-    _queries_by_id[query_id] = merged
-    return merged
+    return updated
+
 
 @app.delete("/api/queries/{query_id}")
 async def delete_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Eliminar query"""
-    uid = current_user["id"]
-    if query_id == "1":
-        raise HTTPException(status_code=400, detail="No se puede eliminar la query de demostración")
-    if _get_query_doc(query_id, uid) is None:
+    qid = _parse_saved_query_id_param(query_id)
+    try:
+        ok = db_delete_saved_query(qid, _api_user_int_id(current_user))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if not ok:
         raise HTTPException(status_code=404, detail="Query no encontrada")
-    del _queries_by_id[query_id]
     return {"message": "Query eliminada"}
+
 
 @app.post("/api/queries/{query_id}/execute")
 async def execute_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Ejecutar una query guardada"""
     try:
-        uid = current_user["id"]
-        if query_id == "1":
-            stub = _stub_saved_query_row(query_id, str(uid))
-        else:
-            doc = _get_query_doc(query_id, uid)
-            if doc is None:
-                raise HTTPException(status_code=404, detail="Query no encontrada")
-            stub = doc
+        qid = _parse_saved_query_id_param(query_id)
+        try:
+            stub = db_get_saved_query(qid, _api_user_int_id(current_user))
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except pg_errors.Error as e:
+            _raise_platform_db_error(e)
+        if stub is None:
+            raise HTTPException(status_code=404, detail="Query no encontrada")
 
         agent = get_dwh_agent()
         start_time = datetime.utcnow()
@@ -626,6 +617,7 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
             "column_labels_es": spanish_labels_map(col_names) if col_names else {},
             "total_rows": len(rows),
             "execution_time_ms": duration,
+            "generated_sql": stub.get("sql_text") or "",
         }
     except HTTPException:
         raise
@@ -635,19 +627,15 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
 # ============ Endpoints de Dashboards ============
 @app.get("/api/dashboards")
 async def get_dashboards(current_user: dict = Depends(get_current_user)):
-    """Listar dashboards del usuario"""
-    # TODO: Obtener de base de datos
-    return [
-        {
-            "id": "1",
-            "user_id": current_user["id"],
-            "title": "Mi Dashboard",
-            "is_default": True,
-            "layout_cols": 12,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-    ]
+    """Listar dashboards del usuario (PostgreSQL)."""
+    try:
+        return db_list_dashboards(_api_user_int_id(current_user))
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
 
 @app.post("/api/dashboards")
 async def create_dashboard(dashboard: DashboardCreate, current_user: dict = Depends(get_current_user)):
@@ -666,32 +654,21 @@ async def create_dashboard(dashboard: DashboardCreate, current_user: dict = Depe
 
 @app.get("/api/dashboards/{dashboard_id}")
 async def get_dashboard(dashboard_id: str, current_user: dict = Depends(get_current_user)):
-    """Obtener dashboard con widgets"""
-    # TODO: Obtener de base de datos con widgets
-    dashboard = {
-        "id": dashboard_id,
-        "user_id": current_user["id"],
-        "title": "Mi Dashboard",
-        "is_default": True,
-        "layout_cols": 12,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-        "widgets": [
-            {
-                "id": "1",
-                "dashboard_id": dashboard_id,
-                "saved_query_id": "1",
-                "pos_x": 0,
-                "pos_y": 0,
-                "width": 6,
-                "height": 4,
-                "display_order": 0,
-                "widget_config": {},
-                "created_at": datetime.utcnow().isoformat(),
-            }
-        ]
-    }
-    return dashboard
+    """Obtener dashboard con widgets. Usa `default` como alias del dashboard por defecto."""
+    uid = _api_user_int_id(current_user)
+    try:
+        did = resolve_dashboard_id(dashboard_id, uid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dashboard no encontrado")
+    try:
+        detail = db_get_dashboard_detail(did, uid)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Dashboard no encontrado")
+    return detail
 
 @app.put("/api/dashboards/{dashboard_id}")
 async def update_dashboard(dashboard_id: str, updates: DashboardUpdate, current_user: dict = Depends(get_current_user)):
@@ -714,26 +691,42 @@ async def delete_dashboard(dashboard_id: str, current_user: dict = Depends(get_c
 # ============ Endpoints de Widgets ============
 @app.post("/api/dashboards/{dashboard_id}/widgets")
 async def create_widget(dashboard_id: str, widget: WidgetCreate, current_user: dict = Depends(get_current_user)):
-    """Crear widget en dashboard"""
-    # TODO: Guardar en base de datos
-    new_widget = {
-        "id": "new_widget_id",
-        "dashboard_id": dashboard_id,
-        "saved_query_id": widget.saved_query_id,
-        "pos_x": widget.pos_x,
-        "pos_y": widget.pos_y,
-        "width": widget.width,
-        "height": widget.height,
-        "display_order": 0,
-        "widget_config": widget.widget_config,
-        "created_at": datetime.utcnow().isoformat(),
-    }
+    """Crear widget en dashboard. `dashboard_id` puede ser numérico o la palabra `default`."""
+    uid = _api_user_int_id(current_user)
+    try:
+        did = resolve_dashboard_id(dashboard_id, uid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dashboard no encontrado")
+    try:
+        sqid = int(str(widget.saved_query_id).strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="saved_query_id inválido")
+    try:
+        new_widget = db_create_dashboard_widget(
+            did,
+            uid,
+            sqid,
+            widget.pos_x,
+            widget.pos_y,
+            widget.width,
+            widget.height,
+            widget.widget_config or {},
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if new_widget is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo crear el widget: dashboard o consulta guardada no encontrada, o no te pertenecen.",
+        )
     return new_widget
 
 @app.put("/api/dashboards/{dashboard_id}/widgets/{widget_id}")
 async def update_widget(dashboard_id: str, widget_id: str, widget: WidgetCreate, current_user: dict = Depends(get_current_user)):
-    """Actualizar widget"""
-    # TODO: Actualizar en base de datos
+    """Actualizar widget (compat; preferir PATCH para fusionar widget_config)."""
+    # TODO: PUT completo en BD
     updated = {
         "id": widget_id,
         "dashboard_id": dashboard_id,
@@ -742,10 +735,51 @@ async def update_widget(dashboard_id: str, widget_id: str, widget: WidgetCreate,
     }
     return updated
 
+
+@app.patch("/api/dashboards/{dashboard_id}/widgets/{widget_id}")
+async def patch_dashboard_widget(
+    dashboard_id: str,
+    widget_id: str,
+    body: DashboardWidgetPatch,
+    current_user: dict = Depends(get_current_user),
+):
+    """Fusiona campos en widget_config (p. ej. default_view, show_chart)."""
+    uid = _api_user_int_id(current_user)
+    try:
+        did = resolve_dashboard_id(dashboard_id, uid)
+        wid = int(widget_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dashboard o widget no encontrado")
+    if not body.widget_config:
+        raise HTTPException(status_code=400, detail="widget_config no puede estar vacío")
+    try:
+        updated = db_patch_dashboard_widget(did, wid, uid, body.widget_config)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Widget no encontrado")
+    return updated
+
+
 @app.delete("/api/dashboards/{dashboard_id}/widgets/{widget_id}")
 async def delete_widget(dashboard_id: str, widget_id: str, current_user: dict = Depends(get_current_user)):
-    """Eliminar widget"""
-    # TODO: Eliminar de base de datos
+    """Eliminar widget del dashboard."""
+    uid = _api_user_int_id(current_user)
+    try:
+        did = resolve_dashboard_id(dashboard_id, uid)
+        wid = int(widget_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dashboard o widget no encontrado")
+    try:
+        ok = db_delete_dashboard_widget(did, wid, uid)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Widget no encontrado")
     return {"message": "Widget eliminado"}
 
 # ============ Endpoints de Chat/Agent ============
