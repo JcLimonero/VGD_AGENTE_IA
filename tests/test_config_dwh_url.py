@@ -45,6 +45,9 @@ class ConfigDwhUrlTests(unittest.TestCase):
             "postgresql://localhost:5432/vgd_dwh_prod_migracion"
         )
 
+    def test_validate_ok_local_dwh_database(self) -> None:
+        validate_dwh_url_targets_vgd_prod("postgresql://localhost:5432/dwh")
+
     def test_validate_wrong_db(self) -> None:
         with self.assertRaises(ConfigError):
             validate_dwh_url_targets_vgd_prod(

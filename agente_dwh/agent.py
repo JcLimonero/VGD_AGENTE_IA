@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .dwh import DwhClient
+from .common_responses import match_common_response
 from .kpi_templates import match_kpi_template
 from .llm_local import OllamaClient
 from .observability import StopWatch, record_query_event
@@ -135,7 +136,7 @@ Para «qué agencias hay», «cuántas agencias», «listado de agencias»: usa 
 No uses customers para listar el catálogo de agencias: customers pertenece a una agencia vía "idAgency", pero el listado oficial es agencies.
 Solo tendría sentido DISTINCT "idAgency" FROM customers si el usuario pide explícitamente agencias que aparecen en clientes (subconjunto), no el catálogo completo.
 
-Equivalencias respecto al demo (tablas que aquí no existen): `sales` → `invoices` (ventas facturadas; `orders` / `comissions` según pedidos o comisiones); `vehicles` → `inventory` (stock, VIN).
+Equivalencias respecto al demo (tablas que aquí no existen): `sales` → `invoices WHERE state IN ('Vendido', 'Facturacion del vehiculo')` (ventas consolidadas); detalles del vehículo (VIN, marca, modelo, colores) → `orders` (JOIN por order_dms); `vehicles` → `inventory` (stock).
 Une hechos a agencies con t."idAgency" = a."idAgency". No uses customers.agency_id (no existe); en customers el vínculo a agencia es "idAgency" (y ndClientDMS).
 
 Ejemplos de forma (adapta nombres reales al esquema de referencia):
@@ -154,12 +155,15 @@ Reglas obligatorias:
 9) LAG/LEAD/ROW_NUMBER en SELECT o CTE, no como JOIN directo a la función de ventana.
 10) Si el historial fija un VIN u otro literal, úsalo tal cual; no inventes subconsultas sustitutas.
 11) Preguntas de catálogo de agencias → tabla agencies, no customers (ver bloque «Catálogo de agencias» arriba).
-12) COMPRAS de vehículos: cuando el usuario pregunte por «compras», «ha comprado», «cada cuándo compra» u otra
-    variante de adquisición de unidades, usa EXCLUSIVAMENTE `h_invoices`. NO uses `h_orders` para compras;
-    `h_orders` es para pedidos/órdenes comerciales previas a la factura. Ejemplo correcto:
-    SELECT i.billing_date, i.vin FROM h_invoices i
-    JOIN h_customers c ON CAST(c.id AS TEXT) = i.nd_client_dms
-    WHERE c.bussines_name = 'NOMBRE' ORDER BY i.billing_date;
+12) VENTAS: usa h_invoices filtrando state IN ('Vendido', 'Facturacion del vehiculo').
+    Para conteos, montos y fechas de venta usa h_invoices sola, sin JOINs adicionales.
+    Solo agrega JOIN h_orders o ON h_invoices.order_dms = o.order_dms cuando la pregunta
+    pida atributos del vehículo (brand, model, version, year, colores, vin); en ese caso
+    toma esos campos de h_orders, NO de h_inventory.
+    Para datos del cliente en ventas, encadena ambos JOINs:
+      JOIN h_orders o ON h_invoices.order_dms = o.order_dms
+      JOIN h_customers c ON CAST(c.id AS TEXT) = o.nd_client_dms
+    (nd_client_dms está en h_orders, no en h_invoices)
 13) h_services NO tiene nd_client_dms ni ninguna referencia directa a cliente.
     El único vínculo es el VIN. Para consultar servicios de un cliente específico,
     obtén primero los VINs del cliente desde h_customer_vehicle y filtra h_services por vin:
@@ -236,8 +240,10 @@ Reglas obligatorias:
 9) YEAR/MONTH/DAY: usa EXTRACT(YEAR FROM x), etc.
 10) Si la intención es listar o contar agencias (catálogo) y el SQL usó customers sin que el usuario pidiera «agencias con clientes» u operación similar, pasa a FROM agencies con "idAgency" y name según el esquema.
 11) Si el error menciona tablas sales o vehicles inexistentes: reemplaza sales→invoices (u orders/comissions), vehicles→inventory; JOIN agencies por "idAgency", no agencies.id = sales.customer_id; usa >= en fechas, no ≥.
-12) Si el SQL generado usó `h_orders` para responder una pregunta de «compras» de vehículos, reemplázalo
-    por `h_invoices`: las compras facturadas están en h_invoices, no en h_orders.
+12) VENTAS consolidadas: usa `h_invoices WHERE state IN ('Vendido', 'Facturacion del vehiculo')`.
+    Los detalles del vehículo (vin, brand, model, version, year, colores) están en `h_orders`;
+    únelos con JOIN h_orders ON h_invoices.order_dms = h_orders.order_dms.
+    Si el SQL busca VIN u otros atributos del vehículo directamente en h_invoices (columna inexistente), agrega el JOIN a h_orders.
 13) Si el error es «operator does not exist: text = bigint» en un JOIN con nd_client_dms:
     nd_client_dms es TEXT y h_customers.id es BIGINT; corrige el JOIN a:
     CAST(c.id AS TEXT) = <tabla>.nd_client_dms
@@ -279,6 +285,7 @@ class QueryResult:
     question: str
     generated_sql: str
     rows: list[dict[str, Any]]
+    direct_answer: str | None = None
 
 
 class DwhAgent:
@@ -300,9 +307,13 @@ class DwhAgent:
         return "h_" in hint and ("tablas/vistas" in hint or "h_" in hint)
 
     def _system_prompt(self) -> str:
+        if self._llm_profile == "vgd":
+            return SYSTEM_PROMPT_VGD
         return SYSTEM_PROMPT_SCHEMA_AWARE
 
     def _sql_fix_system_prompt(self) -> str:
+        if self._llm_profile == "vgd":
+            return SQL_FIX_PROMPT_VGD
         return SQL_FIX_PROMPT_SCHEMA_AWARE
 
     def _dialect_guidance(self) -> str:
@@ -333,6 +344,9 @@ class DwhAgent:
             return f"Motor SQL objetivo: {dialect}.\nRespeta estrictamente este dialecto.\n"
         return "Motor SQL objetivo no identificado. Usa SQL ANSI estándar cuando sea posible.\n"
 
+    def _vgd_business_rules(self) -> str:
+        return ""
+
     def _build_user_prompt(self, question: str) -> str:
         schema_context = self._schema_hint or "No se proporcionó esquema."
         only_h_note = ""
@@ -344,6 +358,7 @@ class DwhAgent:
         return (
             f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
+            f"{self._vgd_business_rules()}"
             f"Pregunta de negocio:\n{question}\n\n"
             "Devuelve solamente SQL válido para el motor indicado arriba (mismo dialecto que el DWH)."
             f"{only_h_note}"
@@ -359,6 +374,7 @@ class DwhAgent:
         return (
             f"{self._dialect_guidance()}\n"
             f"Esquema de referencia:\n{schema_context}\n\n"
+            f"{self._vgd_business_rules()}"
             f"Pregunta original:\n{question}\n\n"
             f"SQL que falló:\n{previous_sql}\n\n"
             f"Error de ejecución:\n{execution_error}\n\n"
@@ -387,6 +403,24 @@ class DwhAgent:
         display_question = question.strip()
         extra = (prompt_extra or "").strip()
         transcript = (conversation_transcript or "").strip()
+
+        # Respuesta directa (preguntas comunes sin consulta a BD).
+        common = match_common_response(display_question)
+        if common is not None:
+            record_query_event(
+                source="agent",
+                success=True,
+                duration_ms=stopwatch.elapsed_ms(),
+                row_count=0,
+                cached=False,
+                message="common_response",
+            )
+            return QueryResult(
+                question=display_question,
+                generated_sql="",
+                rows=[],
+                direct_answer=common.answer,
+            )
 
         # Plantilla KPI determinística: evita el LLM para preguntas conocidas.
         kpi = match_kpi_template(display_question)

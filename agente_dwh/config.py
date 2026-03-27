@@ -13,8 +13,19 @@ class ConfigError(ValueError):
     """Error de configuracion del entorno."""
 
 
-# Única base DWH soportada en producción (nombre en la URL PostgreSQL).
+# Base DWH de producción (nombre en la URL PostgreSQL).
 REQUIRED_DWH_DATABASE_NAME = "vgd_dwh_prod_migracion"
+
+# Bases permitidas cuando la comprobación estricta está activa (local + prod).
+# La base «dwh» es la habitual en PostgreSQL local (p. ej. scripts/migrate_mysql_to_local_dwh.py).
+ALLOWED_DWH_DATABASE_NAMES: tuple[str, ...] = (
+    REQUIRED_DWH_DATABASE_NAME,
+    "dwh",
+)
+
+
+def _allowed_dwh_database_names_lower() -> set[str]:
+    return {n.lower() for n in ALLOWED_DWH_DATABASE_NAMES}
 
 
 def normalize_dwh_url_string(url: str) -> str:
@@ -87,25 +98,27 @@ def effective_dwh_url(url: str) -> str:
 
 def validate_dwh_url_targets_vgd_prod(dwh_url: str) -> None:
     """
-    Comprueba que DWH_URL sea PostgreSQL y el nombre de base sea vgd_dwh_prod_migracion
-    (tras corregir automáticamente «postgres» o BD omitida).
+    Comprueba que DWH_URL sea PostgreSQL y el nombre de base esté en ALLOWED_DWH_DATABASE_NAMES
+    (p. ej. vgd_dwh_prod_migracion o dwh), tras corregir «postgres» o BD omitida.
 
-    Para entornos excepcionales (tests, réplicas con otro nombre): AGENTE_DWH_SKIP_DB_NAME_CHECK=1.
+    Para cualquier otro nombre: AGENTE_DWH_SKIP_DB_NAME_CHECK=1.
     """
     if _db_name_check_skipped():
         return
     prepared = effective_dwh_url(dwh_url)
     name = postgres_database_name_from_url(prepared)
+    allowed = _allowed_dwh_database_names_lower()
+    allowed_display = ", ".join(f"«{n}»" for n in ALLOWED_DWH_DATABASE_NAMES)
     if name is None:
         raise ConfigError(
             "DWH_URL debe ser una URL PostgreSQL (postgresql:// o postgresql+psycopg://...) "
-            f"con base de datos «{REQUIRED_DWH_DATABASE_NAME}» "
-            "(o sin nombre de base / con «postgres» para sustitución automática)."
+            f"con una de estas bases: {allowed_display} "
+            "(o sin nombre de base / con «postgres» para sustitución automática a la base de producción)."
         )
-    if name.lower() != REQUIRED_DWH_DATABASE_NAME.lower():
+    if name.lower() not in allowed:
         raise ConfigError(
-            f"DWH_URL apunta a la base «{name}»; este proyecto solo usa «{REQUIRED_DWH_DATABASE_NAME}». "
-            "Corrige la URL o, solo si es imprescindible, define AGENTE_DWH_SKIP_DB_NAME_CHECK=1."
+            f"DWH_URL apunta a la base «{name}»; se permiten: {allowed_display}. "
+            "Corrige la URL o define AGENTE_DWH_SKIP_DB_NAME_CHECK=1."
         )
 
 
@@ -114,6 +127,7 @@ class Config:
     """Parametros de ejecucion del agente."""
 
     dwh_url: str
+    platform_db_url: str
     llm_endpoint: str
     llm_model: str
     max_rows: int
@@ -132,10 +146,14 @@ class Config:
         dwh_url = normalize_dwh_url_string(os.getenv("DWH_URL", ""))
         if not dwh_url:
             raise ConfigError(
-                f"Falta DWH_URL. Ejemplo: postgresql+psycopg://usuario:pass@host:5432/{REQUIRED_DWH_DATABASE_NAME}"
+                "Falta DWH_URL. Ejemplo: postgresql+psycopg://usuario:pass@host:5432/dwh "
+                f"o .../{REQUIRED_DWH_DATABASE_NAME}"
             )
         validate_dwh_url_targets_vgd_prod(dwh_url)
         dwh_url = effective_dwh_url(dwh_url)
+
+        # Platform DB URL - defaults to DWH_URL if not specified
+        platform_db_url = normalize_dwh_url_string(os.getenv("PLATFORM_DB_URL", dwh_url))
 
         llm_endpoint = os.getenv("LLM_ENDPOINT", "http://127.0.0.1:11434").strip()
         llm_model = os.getenv("LLM_MODEL", "qwen2.5-coder:7b").strip()
@@ -192,6 +210,7 @@ class Config:
 
         return Config(
             dwh_url=dwh_url,
+            platform_db_url=platform_db_url,
             llm_endpoint=llm_endpoint,
             llm_model=llm_model,
             max_rows=max_rows,

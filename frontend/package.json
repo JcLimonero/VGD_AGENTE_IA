@@ -1,0 +1,47 @@
+{
+  "name": "vgd-agente-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "next": "^14.1.0",
+    "typescript": "^5.3.3",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@types/node": "^20.10.5",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.32",
+    "autoprefixer": "^10.4.17",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.2.1",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-navigation-menu": "^1.1.4",
+    "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@radix-ui/react-toast": "^1.1.5",
+    "recharts": "^2.10.3",
+    "react-hook-form": "^7.48.1",
+    "axios": "^1.6.2",
+    "zustand": "^4.4.4",
+    "date-fns": "^2.30.0",
+    "lucide-react": "^0.292.0",
+    "next-themes": "^0.2.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0",
+    "eslint-config-next": "^14.1.0",
+    "tailwindcss-animate": "^1.0.7"
+  }
+}

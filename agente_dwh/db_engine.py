@@ -58,3 +58,10 @@ def create_dwh_engine(database_url: str, *, config: EnginePoolConfig | None = No
             }
         )
     return create_engine(database_url, **kwargs)
+
+
+def get_platform_db_engine() -> Engine:
+    """Crea engine para la base de datos de plataforma usando PLATFORM_DB_URL."""
+    from .config import Config
+    config = Config.from_env()
+    return create_dwh_engine(config.platform_db_url)

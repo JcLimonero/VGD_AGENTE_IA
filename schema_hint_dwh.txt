@@ -1,22 +1,102 @@
 DWH PostgreSQL — esquema `public`, base de datos `dwh`.
 
+=== MODELO DE DATOS — REGLAS FIJAS (no cambiar) ===
+
+AGENCIAS (h_agencies):
+- Catálogo de agencias del grupo.
+- Columna de relación con todas las demás tablas: id_agency.
+- Para mostrar nombre: JOIN h_agencies a ON hecho.id_agency = a.id_agency → selecciona a.name AS agency_name.
+
+CLIENTES (h_customers):
+- Clientes del grupo. Claves: nd_client_dms + id_agency.
+- id_agency → h_agencies.id_agency.
+- JOIN con h_orders: ON c.nd_client_dms = o.nd_client_dms AND c.id_agency = o.id_agency (siempre ambas columnas).
+
+UNIDADES / VEHÍCULOS (h_inventory):
+- Catálogo maestro de unidades. Clave principal: vin.
+- Contiene los datos de la unidad: brand, model, version, year, exterior_color, interior_color, status, amount, km.
+- Para datos de la unidad: JOIN h_inventory inv ON tabla.vin = inv.vin
+
+VENTAS (h_invoices):
+- Unidades ya vendidas. Filtro obligatorio: state IN ('Vendido', 'Facturacion del vehiculo').
+- Columnas clave: id_agency (agencia donde se vendió), order_dms (número de pedido), vin.
+- id_agency → h_agencies.id_agency.
+- order_dms → h_orders.order_dms (detalle del proceso de venta).
+- h_invoices NO tiene nd_client_dms. Para datos del cliente ir a h_orders.
+- Para conteos y montos de ventas: usa h_invoices sola (sin JOINs extra).
+- Para nombre de agencia en ventas: JOIN h_agencies a ON h_invoices.id_agency = a.id_agency.
+- Para datos de la unidad vendida: JOIN h_inventory inv ON h_invoices.vin = inv.vin.
+
+PEDIDOS / MOVIMIENTOS DE VENTA (h_orders):
+- Detalle de todos los movimientos durante el proceso de venta de una unidad.
+- Columnas clave: order_dms (enlace con h_invoices), nd_client_dms, id_agency, vin, brand, model, version, year.
+- Relación con cliente: nd_client_dms + id_agency → h_customers.nd_client_dms + h_customers.id_agency.
+- Solo se une a h_invoices cuando se necesita dato del cliente o del proceso de venta.
+
+SERVICIOS (h_services):
+- Servicios realizados a unidades. Columnas clave: id_agency, vin.
+- vin → h_inventory.vin.
+- id_agency → h_agencies.id_agency.
+- IMPORTANTE: order_dms en h_services es el folio del servicio; NO tiene relación con h_orders.order_dms.
+
+VEHÍCULOS POR CLIENTE (h_customer_vehicle):
+- Relaciona clientes con sus vehículos. Columnas clave: nd_client_dms, id_agency y vin.
+- JOIN con h_customers: ON c.nd_client_dms = cv.nd_client_dms AND c.id_agency = cv.id_agency (siempre ambas columnas).
+- vin → h_inventory.vin.
+
 === Instrucciones para el modelo (obligatorio) ===
-- Usa ÚNICAMENTE las tablas/vistas y columnas listadas más abajo. En `public` hay 14 objetos incluidos en este catálogo.
-- No inventes tablas, vistas ni columnas que no aparezcan en este documento.
-- En esta instancia NO existen en `public` (no las uses en SQL): sales, vehicles, service_appointments, insurance_policies, mv_sales_monthly.
-- Equivalencias frente al dataset demo del repo: `sales` del demo → usa `invoices` para ventas facturadas (y `orders` o `comissions` si la pregunta es pedidos o comisiones); `vehicles` del demo → usa `inventory` para unidades en stock (VIN y datos de unidad en columnas listadas).
-- Catálogo de agencias / sucursales: tabla `agencies` (p. ej. SELECT COUNT(*) AS n FROM agencies). No confundas con conteos desde hechos salvo que el usuario pida «agencias con pedidos», etc.
-- Cliente DMS: par ("idAgency", "ndClientDMS"). JOIN típico:
-    ON t."idAgency" = c."idAgency" AND t."ndClientDMS" = c."ndClientDMS"
-- «Clientes por estado» (geográfico): usa `customers.state` y `FROM customers` (no mezcles con tablas inexistentes ni GROUP BY de columnas sin JOIN válido).
-- Personas morales: revisa `name` y `bussines_name` en customers según columnas listadas.
-- Agencia en hechos: JOIN a agencies ON t."idAgency" = a."idAgency".
-- Preguntas por unidad / VIN: columnas `vin` suelen estar en: inventory, customer_vehicle (ver listado de columnas).
-- La tabla `services` es la de este DWH; no asumas otras tablas de taller salvo que estén listadas arriba.
-- Existen vistas homologadas `h_*` con nombres de columnas en snake_case; priorízalas para consultas NL->SQL si cubren la pregunta.
-- Resultados por agencia: haz JOIN `h_agencies` ON hecho.id_agency = h_agencies.id_agency y muestra `h_agencies.name AS agency_name` (nombre legible). Evita dejar solo id_agency en el SELECT salvo que pidan el id.
-- Identificadores en camelCase requieren comillas dobles en PostgreSQL (p. ej. "idAgency", "ndClientDMS").
-- El exportador puede omitir columnas operativas de integración (Salesforce) para reducir ruido en el prompt del LLM.
+- Usa ÚNICAMENTE tablas/vistas y columnas listadas en este documento. No inventes ninguna.
+- Tablas que NO existen en este DWH: sales, vehicles, service_appointments, insurance_policies, mv_sales_monthly.
+- Usa vistas homologadas h_* (snake_case) para todas las consultas.
+
+=== ANTI-PATRONES — NUNCA hagas esto ===
+- NUNCA agregues JOINs que no sean estrictamente necesarios para responder la pregunta.
+  Ejemplo: "ventas por agencia" → solo h_invoices JOIN h_agencies. No agregues h_orders ni h_services.
+- NUNCA uses h_inventory para consultas de ventas. h_invoices ya tiene vin; h_inventory es el catálogo de stock.
+- NUNCA leas nd_client_dms desde h_invoices (esa columna no existe ahí; está en h_orders).
+- NUNCA uses columnas que no estén listadas en el esquema de abajo.
+- NUNCA uses stage_name para filtrar ventas; el filtro correcto es state IN ('Vendido', 'Facturacion del vehiculo').
+
+=== EJEMPLOS CORRECTOS ===
+
+-- Contar ventas totales:
+SELECT COUNT(*) AS total_ventas
+FROM h_invoices
+WHERE state IN ('Vendido', 'Facturacion del vehiculo');
+
+-- Ventas por agencia:
+SELECT a.name AS agency_name, COUNT(i.id) AS total_ventas
+FROM h_invoices i
+JOIN h_agencies a ON i.id_agency = a.id_agency
+WHERE i.state IN ('Vendido', 'Facturacion del vehiculo')
+GROUP BY a.name ORDER BY total_ventas DESC;
+
+-- Ventas con datos de la unidad (marca, modelo, año):
+SELECT i.billing_date, inv.brand, inv.model, inv.year, i.vin
+FROM h_invoices i
+JOIN h_inventory inv ON i.vin = inv.vin
+WHERE i.state IN ('Vendido', 'Facturacion del vehiculo')
+ORDER BY i.billing_date DESC;
+
+-- Ventas con datos del cliente (nd_client_dms viene de h_orders):
+SELECT i.billing_date, c.bussines_name, o.brand, o.model
+FROM h_invoices i
+JOIN h_orders o ON i.order_dms = o.order_dms
+JOIN h_customers c ON c.nd_client_dms = o.nd_client_dms AND c.id_agency = o.id_agency  -- siempre ambas columnas
+WHERE i.state IN ('Vendido', 'Facturacion del vehiculo');
+
+-- Vehículos de un cliente:
+SELECT cv.vin, inv.brand, inv.model, inv.year
+FROM h_customer_vehicle cv
+JOIN h_inventory inv ON cv.vin = inv.vin
+JOIN h_customers c ON c.nd_client_dms = cv.nd_client_dms AND c.id_agency = cv.id_agency
+WHERE c.bussines_name = 'NOMBRE_CLIENTE';
+
+-- Servicios de una unidad por agencia:
+SELECT s.vin, a.name AS agency_name, s.service_type, s.service_date
+FROM h_services s
+JOIN h_agencies a ON s.id_agency = a.id_agency
+WHERE s.vin = 'VIN_AQUI';
 
 (Generado desde `dwh` / `public`.)
 

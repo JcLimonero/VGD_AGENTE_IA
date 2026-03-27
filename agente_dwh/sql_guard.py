@@ -61,12 +61,32 @@ _DANGEROUS_PATTERNS: tuple[tuple[Pattern[str], str], ...] = (
 
 
 def clean_sql_output(raw_sql: str) -> str:
-    """Limpia formato comun del LLM (```sql ...```) y retorna SQL plano."""
+    """Limpia formato del LLM y retorna SQL plano.
+
+    Maneja tres casos:
+    1. Bloque ```sql ... ``` en cualquier parte del texto (el LLM añade explicación).
+    2. Texto que empieza directamente con ``` sin lenguaje.
+    3. Texto plano que ya es SQL (empieza con SELECT/WITH).
+    """
     cleaned = raw_sql.strip()
+
+    # Caso 1: extraer el primer bloque ```...``` que aparezca en cualquier posición
+    block = re.search(r"```[a-zA-Z]*\s*\n?(.*?)```", cleaned, re.DOTALL)
+    if block:
+        return block.group(1).strip()
+
+    # Caso 2: el texto empieza con ``` sin bloque de cierre bien formado
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-    return cleaned.strip()
+        return cleaned.strip()
+
+    # Caso 3: buscar desde el primer SELECT o WITH si hay texto previo
+    match = re.search(r"(?i)\b(SELECT|WITH)\b", cleaned)
+    if match and match.start() > 0:
+        return cleaned[match.start():].strip()
+
+    return cleaned
 
 
 def sanitize_generated_sql(raw_sql: str) -> str:

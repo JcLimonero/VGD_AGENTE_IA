@@ -1236,70 +1236,22 @@ def _format_conversation_transcript(
     return "\n".join(lines)
 
 
-_CHITCHAT_MAX_LEN = 140
-_RE_CHITCHAT_GREETING = re.compile(
-    r"^\s*(?:"
-    r"hola[!¡.\s]*|"
-    r"buen(?:os|as)\s+(?:d[ií]as|tardes|noches)[!¡.\s]*|"
-    r"(?:hey|hi|hello|buenas)[!¡.\s]*|"
-    r"¿?qu[eé]\s+tal\??[!.\s]*|"
-    r"¿?c[oó]mo\s+est[aá]s?\??[!.\s]*|"
-    r"saludos[!¡.\s]*|"
-    r"buen\s+d[ií]a[!¡.\s]*"
-    r")\s*$",
-    re.IGNORECASE | re.UNICODE,
-)
-_RE_CHITCHAT_THANKS = re.compile(
-    r"^\s*(?:muchas\s+)?gracias(?:\s+(?:todo|mil))?[!¡.\s]*$",
-    re.IGNORECASE | re.UNICODE,
-)
-_RE_CHITCHAT_BYE = re.compile(
-    r"^\s*(?:adios|adiós|hasta\s+luego|chao|chau|bye|nos\s+vemos)[!¡.\s]*$",
-    re.IGNORECASE | re.UNICODE,
-)
-_RE_CHITCHAT_HELP = re.compile(
-    r"^\s*(?:"
-    r"qui[eé]n\s+eres\??|"
-    r"qu[eé]\s+eres\??|"
-    r"qu[eé]\s+haces\??|"
-    r"en\s+qu[eé]\s+me\s+ayudas\??|"
-    r"para\s+qu[eé]\s+sirves\??|"
-    r"ayuda"
-    r")\s*$",
-    re.IGNORECASE | re.UNICODE,
-)
-_RE_CHITCHAT_ACK = re.compile(
-    r"^\s*(?:ok|okay|vale|perfecto|entendido|listo|genial)[!¡.\s]*$",
-    re.IGNORECASE | re.UNICODE,
-)
-
-
 def _chitchat_reply(user_text: str) -> str | None:
     """
-    Mensajes muy cortos y solo conversacionales: respuesta fija sin llamar al DWH ni al LLM.
-    Si el texto parece una pregunta de datos, devuelve None.
+    Preguntas comunes y conversacionales: respuesta directa sin llamar al DWH ni al LLM.
+    Usa el módulo common_responses para un catálogo amplio de Q&A.
+    Si el texto no coincide, devuelve None para que pase al agente.
     """
+    try:
+        from .common_responses import match_common_response
+    except ImportError:
+        from common_responses import match_common_response
+
     t = user_text.strip()
-    if not t or len(t) > _CHITCHAT_MAX_LEN:
+    if not t:
         return None
-    if _RE_CHITCHAT_GREETING.match(t):
-        return (
-            "¡Hola! Soy **Nex IA**. "
-            "Puedo ayudarte a consultar tu almacén de datos: clientes, ventas, servicios, citas, seguros, etc."
-        )
-    if _RE_CHITCHAT_THANKS.match(t):
-        return "De nada. Cuando quieras, sigue con otra pregunta sobre tus datos."
-    if _RE_CHITCHAT_BYE.match(t):
-        return "¡Hasta pronto! Aquí estaré cuando necesites consultar tu negocio."
-    if _RE_CHITCHAT_HELP.match(t):
-        return (
-            "Soy un asistente que **traduce tus preguntas a SQL**, ejecuta la consulta en el DWH y te responde "
-            "con un resumen y tablas o gráficas. No sustituyo a un analista para decisiones finales, "
-            "pero acelero explorar métricas y listados."
-        )
-    if _RE_CHITCHAT_ACK.match(t):
-        return "Perfecto. Dime qué te gustaría revisar en los datos."
-    return None
+    resp = match_common_response(t)
+    return resp.answer if resp is not None else None
 
 
 def _render_user_chat_text(text: str) -> None:
@@ -2185,6 +2137,60 @@ def _render_sidebar_controls(
     with st.sidebar:
         st.markdown("## Panel lateral")
 
+        # ── Tema claro / oscuro ──────────────────────────────────────────────
+        dark_mode = st.toggle("Modo oscuro", value=True, key="dark_mode_toggle")
+        if dark_mode:
+            st.markdown(
+                """
+                <style>
+                :root, .stApp, [data-testid="stAppViewContainer"],
+                [data-testid="stSidebar"], [data-testid="stHeader"] {
+                    background-color: #0e1117 !important;
+                    color: #fafafa !important;
+                }
+                [data-testid="stSidebar"] {
+                    background-color: #161b22 !important;
+                }
+                .stTextInput input, .stTextArea textarea, .stSelectbox div,
+                .stNumberInput input {
+                    background-color: #21262d !important;
+                    color: #fafafa !important;
+                    border-color: #30363d !important;
+                }
+                .stMarkdown, .stCaption, label, p, h1, h2, h3, h4, h5, h6 {
+                    color: #fafafa !important;
+                }
+                .stDataFrame, .stTable { filter: invert(0); }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <style>
+                :root, .stApp, [data-testid="stAppViewContainer"],
+                [data-testid="stSidebar"], [data-testid="stHeader"] {
+                    background-color: #ffffff !important;
+                    color: #0e1117 !important;
+                }
+                [data-testid="stSidebar"] {
+                    background-color: #f0f2f6 !important;
+                }
+                .stTextInput input, .stTextArea textarea, .stSelectbox div,
+                .stNumberInput input {
+                    background-color: #ffffff !important;
+                    color: #0e1117 !important;
+                    border-color: #cccccc !important;
+                }
+                .stMarkdown, .stCaption, label, p, h1, h2, h3, h4, h5, h6 {
+                    color: #0e1117 !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+
         with st.expander("Ayuda y estado del DWH", expanded=False):
             st.markdown(
                 "**Modo presentación** — Con **Modo desarrollo** desactivado en el menú lateral, "
@@ -2383,7 +2389,7 @@ def _render_sidebar_controls(
 
 
 def main() -> None:
-    st.set_page_config(page_title="Panel Nex IA", page_icon="🧠", layout="wide")
+    st.set_page_config(page_title="Panel Nex IA - Inteligencia Automotriz", page_icon="🚗", layout="wide")
     if SESSION_KEY_DEVELOPER_UI not in st.session_state:
         st.session_state[SESSION_KEY_DEVELOPER_UI] = os.getenv(
             "AGENTE_DWH_DEVELOPER_UI", ""
@@ -2400,15 +2406,61 @@ def main() -> None:
     st.markdown(
         f"""
         <style>
+        /* Tema automotriz: colores oscuros, acentos en azul y rojo */
+        body {{
+            background-color: #f8f9fa;
+            color: #212529;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }}
+        .main {{
+            background: #ffffff !important;
+            background-attachment: initial !important;
+        }}
+        .stApp {{
+            background: #f8fafc !important;
+        }}
+        /* Contraste extra para evitar texto perdido */
+        h1, h2, h3, h4, h5, h6, p, span, a, label, strong, em {{
+            color: #0f172a !important;
+        }}
+        .stMetric, .stText, .stMarkdown, .stTextInput, .stTextArea {{
+            color: #0f172a !important;
+        }}
+        .stSidebar, .stAppViewContainer, .stMain, .block-container {{
+            background: #edf2f7 !important;
+        }}
+        .stChatMessage, [data-testid="stChatMessageContent"] {{
+            color: #0f172a !important;
+            background: rgba(255,255,255,0.95) !important;
+        }}
         div.stButton > button[kind="primary"] {{
-            background-color: #1d4ed8;
-            border-color: #1d4ed8;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            border-radius: 25px;
             color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+            transition: all 0.3s ease;
         }}
         div.stButton > button[kind="primary"]:hover {{
-            background-color: #1e40af;
-            border-color: #1e40af;
-            color: white;
+            background: linear-gradient(45deg, #ee5a24, #ff6b6b);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }}
+        /* Título principal con estilo */
+        h1 {{
+            color: #0f172a !important;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+            font-size: 3rem !important;
+            text-align: center;
+            margin-bottom: 1rem !important;
+        }}
+        /* Subtítulo */
+        .subtitle {{
+            color: #e9ecef;
+            text-align: center;
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
         }}
         /* Chat tipo mensajería: usuario a la derecha, asistente a la izquierda */
         [data-testid="stChatMessage"] {{
@@ -2446,18 +2498,16 @@ def main() -> None:
         }}
         [data-testid="stChatMessageContent"],
         [data-testid="stChatMessageContent"] > div {{
-            background: transparent !important;
-            background-color: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
+            background: rgba(255, 255, 255, 0.9) !important;
+            border-radius: 15px !important;
+            padding: 10px 15px !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
         }}
-        /* Avatares del chat: sin marco de color (solo icono), misma caja que el popover */
+        /* Avatares del chat: con estilo */
         [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"],
         [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] {{
-            background: transparent !important;
-            background-color: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
+            background: #495057 !important;
+            border: 2px solid #dee2e6 !important;
             padding: 0 !important;
             margin: 0 !important;
             width: 2.25rem !important;
@@ -2475,19 +2525,12 @@ def main() -> None:
             width: 1.5rem !important;
             height: 1.5rem !important;
         }}
-        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] > div,
-        [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"] > div {{
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-        }}
-        /* Popover «detalle» en chat: solo icono, misma huella que el avatar */
+        /* Popover «detalle» en chat */
         [data-testid="stChatMessage"] [data-testid="stPopover"] > button {{
-            background: transparent !important;
-            background-color: transparent !important;
+            background: #6c757d !important;
             border: none !important;
-            box-shadow: none !important;
-            color: inherit !important;
+            border-radius: 50% !important;
+            color: white !important;
             padding: 0 !important;
             margin: 0 !important;
             min-height: 2.25rem !important;
@@ -2499,12 +2542,13 @@ def main() -> None:
             align-items: center !important;
             justify-content: center !important;
             line-height: 1 !important;
+            transition: background 0.3s ease;
         }}
         [data-testid="stChatMessage"] [data-testid="stPopover"] > button:hover {{
-            background: rgba(255, 255, 255, 0.08) !important;
+            background: #5a6268 !important;
         }}
         [data-testid="stChatMessage"] [data-testid="stPopover"] > button:focus-visible {{
-            outline: 2px solid rgba(96, 165, 250, 0.85);
+            outline: 2px solid #007bff;
             outline-offset: 2px;
         }}
         [data-testid="stChatMessage"] [data-testid="stPopover"] > button svg {{
@@ -2521,7 +2565,7 @@ def main() -> None:
         [data-testid="stChatMessage"] [data-testid="stPopover"] [data-testid="stChevronDownIcon"] {{
             display: none !important;
         }}
-        /* Menos hueco superior: título y contenido más arriba */
+        /* Menos hueco superior */
         header[data-testid="stHeader"] {{
             height: auto !important;
             min-height: 0 !important;
@@ -2532,19 +2576,105 @@ def main() -> None:
         [data-testid="stMain"] .block-container,
         section.main .block-container,
         div.block-container {{
-            padding-top: 0.5rem !important;
+            padding-top: 1rem !important;
         }}
         [data-testid="stMain"] h1,
         .main h1 {{
             margin-top: 0 !important;
             margin-bottom: 0.35rem !important;
         }}
+        /* Sidebar con fondo */
+        [data-testid="stSidebar"] {{
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(10px);
+        }}
+        /* Animaciones sutiles */
+        .stExpander {{
+            transition: all 0.3s ease;
+        }}
+        .stExpander:hover {{
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }}
+        /* Chat Input Alignment */
+        [data-testid="stChatInputContainer"] {{
+            display: flex !important;
+            justify-content: center !important;
+            width: 100% !important;
+            padding: 1rem 0 !important;
+        }}
+        [data-testid="stChatInput"] {{
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+        }}
+        [data-testid="stChatInput"] input {{
+            width: 100% !important;
+            text-align: left !important;
+            padding-left: 1rem !important;
+        }}
         {_hide_streamlit_header_chrome}
         </style>
         """,
         unsafe_allow_html=True,
     )
-    st.title("Panel Nex IA")
+    # Logo y título mejorado
+    col_logo, col_title = st.columns([1, 4])
+    with col_logo:
+        st.markdown("🚗")
+    with col_title:
+        st.title("Panel Nex IA")
+        st.markdown('<p class="subtitle">Inteligencia Artificial para Datos Automotrices</p>', unsafe_allow_html=True)
+
+    # Sección de bienvenida con métricas reales
+    st.markdown("---")
+    _snap = get_metrics_snapshot()
+    _total_q = _snap["total_queries"]
+    _avg_ms = _snap["avg_latency_ms"]
+    _success_rate = _snap["success_rate"]
+
+    # Agencias: consulta real a la BD (solo si URL disponible y es PostgreSQL)
+    _agency_count: int | None = None
+    if DEFAULT_DWH_URL and "postgresql" in DEFAULT_DWH_URL.lower():
+        try:
+            _rows = build_dwh_client(
+                dwh_url=effective_dwh_url(DEFAULT_DWH_URL),
+                row_limit=1,
+                cache_ttl_seconds=300,
+                cache_max_entries=10,
+            ).execute_select('SELECT COUNT(*) AS n FROM agencies')
+            if _rows:
+                _agency_count = int(_rows[0].get("n", 0))
+        except Exception:  # noqa: BLE001
+            pass
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        _q_label = f"{_total_q:,}" if _total_q > 0 else "0"
+        _q_delta = "sesión activa" if _total_q > 0 else "inicia consultando"
+        st.metric("Consultas Procesadas", _q_label, _q_delta)
+    with col2:
+        if _avg_ms > 0:
+            _avg_s = round(_avg_ms / 1000, 1)
+            _t_label = f"{_avg_s}s"
+            _t_delta = "promedio de sesión"
+        else:
+            _t_label = "—"
+            _t_delta = "sin datos aún"
+        st.metric("Tiempo de Respuesta", _t_label, _t_delta)
+    with col3:
+        _a_label = str(_agency_count) if _agency_count is not None else "—"
+        _a_delta = "en el catálogo" if _agency_count is not None else "sin conexión"
+        st.metric("Agencias Conectadas", _a_label, _a_delta)
+    with col4:
+        if _snap["total_queries"] > 0:
+            _p_label = f"{_success_rate:.0f}%"
+            _p_delta = f"{_snap['success_queries']} exitosas / {_snap['failed_queries']} fallidas"
+        else:
+            _p_label = "—"
+            _p_delta = "sin datos aún"
+        st.metric("Precisión SQL", _p_label, _p_delta)
+    st.markdown("**¡Bienvenido!** Haz preguntas en lenguaje natural sobre tus datos automotrices y obtén insights instantáneos.")
+    st.markdown("---")
 
     if not DEFAULT_DWH_URL:
         show_missing_dwh_url_error(REQUIRED_DWH_DATABASE_NAME)
@@ -2837,6 +2967,30 @@ def main() -> None:
                 conversation_transcript=transcript,
                 vehicle_focus=vf,
             )
+            # Respuesta directa (sin consulta a BD)
+            if result.direct_answer:
+                if natural_chat:
+                    st.session_state.setdefault(SESSION_KEY_CHAT_TURNS, []).append(
+                        {
+                            "user": effective_question,
+                            "sql": "",
+                            "rows": 0,
+                            "error": None,
+                            "kpi": "",
+                            "answer_summary": result.direct_answer,
+                        }
+                    )
+                    st.session_state[SESSION_KEY_LAST_QUERY_VIEW] = {
+                        "kind": "direct_answer",
+                        "answer": result.direct_answer,
+                        "question": effective_question,
+                    }
+                    st.rerun()
+                st.markdown("### Respuesta")
+                st.markdown(result.direct_answer)
+                _render_observability_panel(cache_stats={})
+                return
+
             cache_stats = agent._dwh.get_cache_stats()  # noqa: SLF001
             execution_info = agent._dwh.get_last_execution_info()  # noqa: SLF001
             summary_llm = _make_summary_llm_client(
