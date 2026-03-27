@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/store/auth'
 import { apiClient } from '@/services/api'
-import type { User } from '../types'
+import type { User } from '@/types'
 
 function mapLoginUser(apiUser: {
   id: string | number

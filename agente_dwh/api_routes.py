@@ -25,6 +25,11 @@ from agente_dwh.app_services import build_agent_service
 from agente_dwh.config import Config, ConfigError, effective_dwh_url
 from agente_dwh.sql_guard import validate_read_only_sql
 from agente_dwh.web_layers.adapters import read_schema_hint
+from agente_dwh.column_labels import (
+    localize_summary_markdown,
+    spanish_column_label,
+    spanish_labels_map,
+)
 
 # ============ Configuración ============
 SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
@@ -167,20 +172,24 @@ def _heuristic_nl_summary(rows: list[dict[str, Any]]) -> str | None:
     if n == 0:
         return "La consulta no devolvió ningún resultado. Puedes intentar ampliar los criterios de búsqueda."
     keys = list(rows[0].keys())
+
+    def _lbl(k: str) -> str:
+        return spanish_column_label(k)
+
     if n == 1:
-        parts = [f"- **{k}:** {rows[0][k]}" for k in keys]
+        parts = [f"- **{_lbl(k)}:** {rows[0][k]}" for k in keys]
         return "Según los datos consultados:\n" + "\n".join(parts)
     if n <= 15 and len(keys) <= 6:
         lines: list[str] = []
         for row in rows:
-            pairs = [f"**{k}:** {row.get(k)}" for k in keys]
+            pairs = [f"**{_lbl(k)}:** {row.get(k)}" for k in keys]
             lines.append("- " + " · ".join(pairs))
         return f"Se encontraron **{n} registros**:\n" + "\n".join(lines)
     if n <= 50 and len(keys) <= 10:
         preview = min(5, n)
         lines = []
         for row in rows[:preview]:
-            pairs = [f"**{k}:** {row.get(k)}" for k in keys]
+            pairs = [f"**{_lbl(k)}:** {row.get(k)}" for k in keys]
             lines.append("- " + " · ".join(pairs))
         more = (
             f"\n\n…y **{n - preview}** filas más (consulta la tabla para el detalle completo)."
@@ -238,9 +247,13 @@ def _query_result_to_chat_payload(result: QueryResult, agent: "DwhAgent | None" 
             h = _heuristic_nl_summary(result.rows)
             message = h if h is not None else f"Se encontraron **{n} registros**. Consulta la tabla de resultados para ver el detalle."
         col_names = list(rows_cap[0].keys()) if rows_cap else []
+        if col_names:
+            message = localize_summary_markdown(message, col_names)
+        labels_map = spanish_labels_map(col_names) if col_names else {}
         results = {
             "rows": jsonable_encoder(rows_cap),
             "column_names": col_names,
+            "column_labels_es": labels_map,
             "total_rows": n,
             "generated_sql": sql,
         }
@@ -610,6 +623,7 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
             "executed_at": snapshot["executed_at"],
             "rows": jsonable_encoder(rows[:500]),
             "column_names": col_names,
+            "column_labels_es": spanish_labels_map(col_names) if col_names else {},
             "total_rows": len(rows),
             "execution_time_ms": duration,
         }

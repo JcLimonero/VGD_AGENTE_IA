@@ -12,7 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { QueryResultData } from '@/types/index'
+import { columnHeaderLabel } from '@/lib/columnLabels'
+import type { QueryResultData } from '@/types'
 
 const tooltipStyle = {
   backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -93,6 +94,34 @@ type Props = {
   data: QueryResultData
 }
 
+function ResultsChartTooltip({
+  active,
+  payload,
+  label,
+  labelsEs,
+}: {
+  active?: boolean
+  payload?: Array<{ dataKey?: string | number; name?: string; value?: unknown; color?: string }>
+  label?: string
+  labelsEs?: Record<string, string>
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={tooltipStyle}>
+      <p style={{ color: '#e2e8f0', marginBottom: 4 }}>{label}</p>
+      {payload.map((p) => {
+        const key = p.dataKey != null ? String(p.dataKey) : ''
+        const title = key ? columnHeaderLabel(key, labelsEs) : (p.name ?? '')
+        return (
+          <p key={key || String(p.name)} style={{ color: '#e2e8f0', margin: 0 }}>
+            <span style={{ color: p.color ?? '#94a3b8' }}>●</span> {title}: {String(p.value ?? '')}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
 export function QueryResultsChart({ data }: Props) {
   const spec = buildChartSpec(data)
 
@@ -114,6 +143,7 @@ export function QueryResultsChart({ data }: Props) {
 
   const { chartData, xKey, yKeys, preferLine } = spec
   const ChartComponent = preferLine ? LineChart : BarChart
+  const labelsEs = data.column_labels_es
 
   return (
     <div className="h-[320px] w-full min-w-0 pt-2">
@@ -128,9 +158,22 @@ export function QueryResultsChart({ data }: Props) {
             angle={chartData.length > 10 ? -35 : 0}
             textAnchor={chartData.length > 10 ? 'end' : 'middle'}
             height={chartData.length > 10 ? 64 : 32}
+            label={
+              xKey === '__x'
+                ? undefined
+                : {
+                    value: columnHeaderLabel(xKey, labelsEs),
+                    position: 'insideBottom',
+                    offset: chartData.length > 10 ? -8 : -2,
+                    style: { fill: '#94a3b8', fontSize: 11 },
+                  }
+            }
           />
           <YAxis stroke={AXIS} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-          <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#e2e8f0' }} />
+          <Tooltip
+            content={<ResultsChartTooltip labelsEs={labelsEs} />}
+            cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
+          />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
           {preferLine
             ? yKeys.map((k, i) => (
@@ -138,14 +181,20 @@ export function QueryResultsChart({ data }: Props) {
                   key={k}
                   type="monotone"
                   dataKey={k}
-                  name={k}
+                  name={columnHeaderLabel(k, labelsEs)}
                   stroke={PALETTE[i % PALETTE.length]}
                   strokeWidth={2}
                   dot={{ r: 3 }}
                 />
               ))
             : yKeys.map((k, i) => (
-                <Bar key={k} dataKey={k} name={k} fill={PALETTE[i % PALETTE.length]} radius={[4, 4, 0, 0]} />
+                <Bar
+                  key={k}
+                  dataKey={k}
+                  name={columnHeaderLabel(k, labelsEs)}
+                  fill={PALETTE[i % PALETTE.length]}
+                  radius={[4, 4, 0, 0]}
+                />
               ))}
         </ChartComponent>
       </ResponsiveContainer>

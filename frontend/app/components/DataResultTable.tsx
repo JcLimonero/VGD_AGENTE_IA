@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { QueryResultData } from '@/types/index'
+import { columnHeaderLabel } from '@/lib/columnLabels'
+import type { QueryResultData } from '@/types'
 
 export function DataResultTable({ results }: { results: QueryResultData }) {
   const [showAll, setShowAll] = useState(false)
@@ -61,7 +62,7 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
                   key={col}
                   className="whitespace-nowrap px-3 py-2 font-semibold text-gray-700 dark:text-gray-200"
                 >
-                  {col}
+                  {columnHeaderLabel(col, results.column_labels_es)}
                 </th>
               ))}
             </tr>

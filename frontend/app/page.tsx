@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 export default function Home() {
   const router = useRouter()
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated } = useAuth()
 
   // Si está autenticado, redirigir al dashboard
   useEffect(() => {

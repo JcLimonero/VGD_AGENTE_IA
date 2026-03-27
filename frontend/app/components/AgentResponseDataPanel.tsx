@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { DataResultTable } from '@/components/DataResultTable'
 import { QueryResultsChart } from '@/components/QueryResultsChart'
 import { downloadQueryResultsCsv } from '@/lib/csvExport'
-import type { ChatMessage } from '@/types/index'
+import type { ChatMessage } from '@/types'
 import { cn } from '@/lib/utils'
 import { SaveChatQueryAction } from '@/components/SaveChatQueryAction'
 

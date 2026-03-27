@@ -25,6 +25,8 @@ export interface QueryResult {
   executed_at: string
   rows: Record<string, any>[]
   column_names: string[]
+  /** Mapa alias SQL → etiqueta para UI (español), opcional según versión de API. */
+  column_labels_es?: Record<string, string>
   total_rows: number
   execution_time_ms: number
 }
@@ -32,6 +34,7 @@ export interface QueryResult {
 export interface QueryResultData {
   rows: Record<string, any>[]
   column_names: string[]
+  column_labels_es?: Record<string, string>
   total_rows: number
   generated_sql?: string
 }

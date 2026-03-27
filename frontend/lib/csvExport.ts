@@ -1,4 +1,5 @@
-import type { QueryResultData } from '@/types/index'
+import { columnHeaderLabel } from '@/lib/columnLabels'
+import type { QueryResultData } from '@/types'
 
 function escapeCsvCell(val: unknown): string {
   if (val === null || val === undefined) return ''
@@ -10,7 +11,7 @@ function escapeCsvCell(val: unknown): string {
 /** Descarga los resultados como CSV (UTF-8 con BOM para Excel en español). */
 export function downloadQueryResultsCsv(data: QueryResultData, filename?: string): void {
   const cols = data.column_names
-  const header = cols.map(escapeCsvCell).join(',')
+  const header = cols.map((c) => escapeCsvCell(columnHeaderLabel(c, data.column_labels_es))).join(',')
   const lines = data.rows.map((row) => cols.map((c) => escapeCsvCell(row[c])).join(','))
   const BOM = '\uFEFF'
   const csv = BOM + [header, ...lines].join('\r\n')

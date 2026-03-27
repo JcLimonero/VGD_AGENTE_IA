@@ -39,6 +39,9 @@
       "@/store/*": [
         "./app/store/*"
       ],
+      "@/types": [
+        "./app/types/index.ts"
+      ],
       "@/types/*": [
         "./app/types/*"
       ],
