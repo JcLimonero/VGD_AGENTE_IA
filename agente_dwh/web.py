@@ -639,7 +639,10 @@ def _format_time_value(days_value: Any) -> str:
     if abs_days > 30:
         months = days / 30.0
         return f"{months:,.1f} meses"
-    return f"{days:,.1f} días"
+    if abs_days >= 1:
+        return f"{days:,.1f} días"
+    hours = days * 24.0
+    return f"{hours:,.1f} horas"
 
 
 def _format_mxn_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -1281,7 +1284,7 @@ def _chitchat_reply(user_text: str) -> str | None:
         return None
     if _RE_CHITCHAT_GREETING.match(t):
         return (
-            "¡Hola! Soy el asistente del **Panel de Inteligencia Comercial**. "
+            "¡Hola! Soy **Nex IA**. "
             "Puedo ayudarte a consultar tu almacén de datos: clientes, ventas, servicios, citas, seguros, etc."
         )
     if _RE_CHITCHAT_THANKS.match(t):
@@ -2380,7 +2383,7 @@ def _render_sidebar_controls(
 
 
 def main() -> None:
-    st.set_page_config(page_title="Panel de Inteligencia Comercial", page_icon="🧠", layout="wide")
+    st.set_page_config(page_title="Panel Nex IA", page_icon="🧠", layout="wide")
     if SESSION_KEY_DEVELOPER_UI not in st.session_state:
         st.session_state[SESSION_KEY_DEVELOPER_UI] = os.getenv(
             "AGENTE_DWH_DEVELOPER_UI", ""
@@ -2541,7 +2544,7 @@ def main() -> None:
         """,
         unsafe_allow_html=True,
     )
-    st.title("Panel de Inteligencia Comercial")
+    st.title("Panel Nex IA")
 
     if not DEFAULT_DWH_URL:
         show_missing_dwh_url_error(REQUIRED_DWH_DATABASE_NAME)

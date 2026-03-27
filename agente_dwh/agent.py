@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .dwh import DwhClient
+from .kpi_templates import match_kpi_template
 from .llm_local import OllamaClient
 from .observability import StopWatch, record_query_event
 from .sql_guard import clean_sql_output, validate_read_only_sql, validate_vgd_dwh_sql
@@ -386,6 +387,24 @@ class DwhAgent:
         display_question = question.strip()
         extra = (prompt_extra or "").strip()
         transcript = (conversation_transcript or "").strip()
+
+        # Plantilla KPI determinística: evita el LLM para preguntas conocidas.
+        kpi = match_kpi_template(display_question)
+        if kpi is None and extra:
+            kpi = match_kpi_template(extra)
+        if kpi is not None:
+            normalized_sql = self._dwh._normalize_sql_for_dialect(kpi.sql)
+            rows = self._dwh.execute_select(normalized_sql)
+            record_query_event(
+                source="agent",
+                success=True,
+                duration_ms=stopwatch.elapsed_ms(),
+                row_count=len(rows),
+                cached=False,
+                message="kpi_template",
+            )
+            return QueryResult(question=display_question, generated_sql=normalized_sql, rows=rows)
+
         parts: list[str] = []
         if transcript:
             parts.append(transcript)
