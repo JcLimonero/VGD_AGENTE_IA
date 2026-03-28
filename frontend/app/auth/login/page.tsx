@@ -1,10 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
-import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 
 /** Credenciales de prueba (coinciden con `agente_dwh/api_routes.py`). Quitar o vaciar antes de producción. */
 const TEST_EMAIL = 'admin@example.com'
@@ -17,14 +15,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState(TEST_PASSWORD)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [sessionNotice, setSessionNotice] = useState('')
 
-  console.log('LoginPage render - isAuthenticated:', isAuthenticated)
-
-  // Redirigir si ya está autenticado (usando useEffect para evitar setState durante render)
   useEffect(() => {
-    console.log('useEffect - isAuthenticated:', isAuthenticated)
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('session') === 'expired') {
+      setSessionNotice('Tu sesión expiró o caducó. Vuelve a iniciar sesión.')
+    }
+  }, [])
+
+  useEffect(() => {
     if (isAuthenticated) {
-      console.log('Redirigiendo desde useEffect al dashboard')
       router.push('/dashboard')
     }
   }, [isAuthenticated, router])
@@ -35,16 +37,12 @@ export default function LoginPage() {
     setError('')
 
     try {
-      console.log('Intentando login con:', email, password)
-      const success = await login(email, password)
-      console.log('Login success:', success)
-      if (!success) {
-        setError('Credenciales inválidas')
+      const result = await login(email, password)
+      if (!result.ok) {
+        setError(result.error)
       }
-      // La redirección se maneja en el useEffect cuando isAuthenticated cambie
-    } catch (err: any) {
-      console.error('Error en login:', err)
-      setError(err.message || 'Error al iniciar sesión')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
     } finally {
       setIsLoading(false)
     }
@@ -54,20 +52,24 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
       <div className="w-full max-w-md">
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-          <div className="mb-6 flex justify-center">
-            <AppBreadcrumb
-              items={[
-                { label: 'Inicio', href: '/' },
-                { label: 'Iniciar sesión' },
-              ]}
-            />
-          </div>
           <h1 className="text-2xl font-bold text-center mb-8 text-gray-900 dark:text-white">
             VGD Agente IA
           </h1>
 
+          {sessionNotice && (
+            <div
+              className="mb-6 p-4 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              role="status"
+            >
+              {sessionNotice}
+            </div>
+          )}
+
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg text-red-600 dark:text-red-200 text-sm">
+            <div
+              className="mb-6 p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg text-red-600 dark:text-red-200 text-sm"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -109,13 +111,6 @@ export default function LoginPage() {
               {isLoading ? 'Cargando...' : 'Iniciar Sesión'}
             </button>
           </form>
-
-          <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
-            ¿No tienes cuenta?{' '}
-            <Link href="/auth/register" className="text-blue-600 hover:underline">
-              Regístrate aquí
-            </Link>
-          </p>
         </div>
       </div>
     </div>

@@ -8,18 +8,8 @@ import { apiClient } from '@/services/api'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { DataResultTable } from '@/components/DataResultTable'
 import { normalizeSavedQuery, queryResultFromExecuteApi } from '@/lib/savedQuery'
+import { getApiErrorMessage } from '@/lib/apiError'
 import type { Query, QueryResultData } from '@/types'
-
-function apiExecuteErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const ax = err as { response?: { data?: { detail?: unknown } } }
-    const d = ax.response?.data?.detail
-    if (typeof d === 'string') return d
-    if (Array.isArray(d)) return JSON.stringify(d)
-  }
-  if (err instanceof Error) return err.message
-  return 'Error al ejecutar el widget'
-}
 
 export default function ExecuteQueryPage() {
   const params = useParams()
@@ -45,7 +35,7 @@ export default function ExecuteQueryPage() {
       setResult(queryResultFromExecuteApi(r, typeof sqlSnapshot === 'string' ? sqlSnapshot : undefined))
     } catch (e) {
       setResult(null)
-      setError(apiExecuteErrorMessage(e))
+      setError(getApiErrorMessage(e, 'Error al ejecutar el widget'))
     } finally {
       setLoadingExec(false)
     }
@@ -75,7 +65,7 @@ export default function ExecuteQueryPage() {
         const q = normalizeSavedQuery(raw as Record<string, unknown>)
         setQuery(q)
       } catch (e) {
-        if (!cancelled) setError(apiExecuteErrorMessage(e))
+        if (!cancelled) setError(getApiErrorMessage(e, 'Error al ejecutar el widget'))
       } finally {
         if (!cancelled) setLoadingMeta(false)
       }

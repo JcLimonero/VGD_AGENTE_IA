@@ -2,6 +2,7 @@ import { useRef, useCallback } from 'react'
 import axios from 'axios'
 import { useChatStore } from '@/store/chat'
 import { apiClient } from '@/services/api'
+import { getApiErrorMessage } from '@/lib/apiError'
 import { ChatMessage } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -75,8 +76,7 @@ export function useChat() {
         setError(null)
         setCancelledDraft(lastOutgoingContentRef.current ?? '')
       } else {
-        const msg = err instanceof Error ? err.message : 'Error al enviar el mensaje'
-        setError(msg)
+        setError(getApiErrorMessage(err, 'Error al enviar el mensaje'))
       }
     } finally {
       setLoading(false)

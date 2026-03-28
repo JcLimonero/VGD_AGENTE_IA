@@ -13,6 +13,7 @@ import {
   resolveLayoutWithPush,
   type WidgetGeometry,
 } from '@/lib/dashboardGridGeometry'
+import { getApiErrorMessage } from '@/lib/apiError'
 const DASH = 'default'
 /** Alto aproximado de una fila lógica de cuadrícula (px), para convertir arrastre vertical en filas. */
 const ROW_UNIT_PX = 56
@@ -84,7 +85,7 @@ export function DashboardWidgetsGrid({
       setWidgets(list as ApiDashboardWidget[])
     } catch (e: unknown) {
       setWidgets([])
-      setError(e instanceof Error ? e.message : 'No se pudo cargar el dashboard')
+      setError(getApiErrorMessage(e, 'No se pudo cargar el dashboard'))
     } finally {
       setLoading(false)
     }

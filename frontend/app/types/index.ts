@@ -20,6 +20,29 @@ export interface Query {
   tags: string[]
 }
 
+/** Cuerpo POST `/api/queries` (alineado con `QueryCreate` en FastAPI). */
+export interface SavedQueryCreatePayload {
+  title: string
+  original_question: string
+  sql_text: string
+  chart_type?: string
+  chart_config?: Record<string, unknown>
+  refresh_interval?: string | null
+  tags?: string[]
+}
+
+/** Cuerpo PUT `/api/queries/{id}` (alineado con `QueryUpdate` en FastAPI). */
+export interface SavedQueryUpdatePayload {
+  title?: string
+  original_question?: string
+  sql_text?: string
+  chart_type?: string
+  chart_config?: Record<string, unknown>
+  refresh_interval?: string | null
+  is_active?: boolean
+  tags?: string[]
+}
+
 export interface QueryResult {
   query_id: string
   executed_at: string

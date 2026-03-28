@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
+import type { SavedQueryCreatePayload, SavedQueryUpdatePayload } from '@/types'
 
 /**
  * Si NEXT_PUBLIC_API_BASE_URL está definido → llamada directa al FastAPI.
@@ -36,25 +37,32 @@ class APIClient {
       },
     })
 
-    // Interceptor para agregar token JWT si existe (solo en cliente)
+    // Token JWT + id de correlación por petición (solo en cliente)
     this.client.interceptors.request.use((config) => {
       if (typeof window !== 'undefined') {
         const token = localStorage.getItem('auth_token')
         if (token) {
           config.headers.Authorization = `Bearer ${token}`
         }
+        const rid =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+        config.headers['X-Request-ID'] = rid
       }
       return config
     })
 
-    // Interceptor para manejo de errores
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401 && typeof window !== 'undefined') {
-          // Token expirado - ir a login (solo en cliente)
-          localStorage.removeItem('auth_token')
-          window.location.href = '/auth/login'
+          const reqUrl = error.config?.url ?? ''
+          const isLoginAttempt = reqUrl.includes('/auth/login')
+          if (!isLoginAttempt) {
+            localStorage.removeItem('auth_token')
+            window.location.href = '/auth/login?session=expired'
+          }
         }
         return Promise.reject(error)
       }
@@ -94,12 +102,12 @@ class APIClient {
     return response.data
   }
 
-  async createQuery(data: any) {
+  async createQuery(data: SavedQueryCreatePayload) {
     const response = await this.client.post('/api/queries', data)
     return response.data
   }
 
-  async updateQuery(id: string, data: any) {
+  async updateQuery(id: string, data: SavedQueryUpdatePayload) {
     const response = await this.client.put(`/api/queries/${id}`, data)
     return response.data
   }

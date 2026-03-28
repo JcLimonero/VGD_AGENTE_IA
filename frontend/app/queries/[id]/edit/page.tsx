@@ -8,6 +8,7 @@ import { useQuery } from '@/hooks/useQuery'
 import { apiClient } from '@/services/api'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { normalizeSavedQuery, toQueryUpdatePayload } from '@/lib/savedQuery'
+import { getApiErrorMessage } from '@/lib/apiError'
 
 export default function EditQueryPage() {
   const params = useParams()
@@ -48,8 +49,7 @@ export default function EditQueryPage() {
         setSql(q.sql)
       } catch (e: unknown) {
         if (!cancelled) {
-          const msg = e instanceof Error ? e.message : 'No se pudo cargar el widget'
-          setLoadError(msg)
+          setLoadError(getApiErrorMessage(e, 'No se pudo cargar el widget'))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -70,8 +70,7 @@ export default function EditQueryPage() {
       await updateQuery(id, toQueryUpdatePayload({ name, description, sql }))
       router.push('/queries')
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error al guardar'
-      setSaveError(msg)
+      setSaveError(getApiErrorMessage(e, 'Error al guardar'))
     } finally {
       setSaving(false)
     }

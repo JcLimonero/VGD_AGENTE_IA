@@ -24,24 +24,18 @@ export function AuthHydrator() {
   const { login, logout } = useAuthStore()
 
   useEffect(() => {
-    // Solo ejecutar en el cliente
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('auth_token')
       if (token) {
-        console.log('AuthHydrator - Token encontrado en localStorage, validando...')
         apiClient
           .getMe()
           .then((user) => {
-            console.log('AuthHydrator - Token válido, usuario:', user)
             login(mapApiUserToStore(user), token)
           })
           .catch(() => {
-            console.log('AuthHydrator - Token inválido, limpiando...')
             localStorage.removeItem('auth_token')
             logout()
           })
-      } else {
-        console.log('AuthHydrator - No hay token en localStorage')
       }
     }
   }, [login, logout])

@@ -3,6 +3,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any
 import jwt
@@ -13,6 +15,7 @@ import bcrypt
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+import uuid
 
 from agente_dwh.bootstrap_env import load_dotenv_from_project_root
 
@@ -355,7 +358,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Propaga o genera X-Request-ID para enlazar logs cliente ↔ servidor."""
+
+    _HEADER = "X-Request-ID"
+
+    async def dispatch(self, request: Request, call_next):
+        raw = request.headers.get(self._HEADER)
+        cid = raw.strip() if raw and raw.strip() else str(uuid.uuid4())
+        request.state.request_id = cid
+        response = await call_next(request)
+        response.headers[self._HEADER] = cid
+        return response
+
+
 # ============ CORS ============
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:3001"],

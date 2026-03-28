@@ -1,4 +1,4 @@
-import type { Query, QueryResultData } from '@/types'
+import type { Query, QueryResultData, SavedQueryUpdatePayload } from '@/types'
 import { fixSpanishSemicolonEnyeTypo } from '@/lib/spanishDisplay'
 
 /** La API FastAPI usa title / sql_text / original_question. El UI usa name / sql / description. */
@@ -24,7 +24,7 @@ export function toQueryUpdatePayload(input: {
   name: string
   description: string
   sql: string
-}): Record<string, string> {
+}): SavedQueryUpdatePayload {
   return {
     title: fixSpanishSemicolonEnyeTypo(input.name.trim()),
     original_question: fixSpanishSemicolonEnyeTypo(input.description.trim()),

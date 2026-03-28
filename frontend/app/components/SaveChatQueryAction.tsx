@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@/hooks/useQuery'
+import { getApiErrorMessage } from '@/lib/apiError'
 
 type Props = {
   userQuestion: string
@@ -43,8 +44,7 @@ export function SaveChatQueryAction({ userQuestion, sql }: Props) {
       setDone(true)
       setOpen(false)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'No se pudo guardar'
-      setErr(msg)
+      setErr(getApiErrorMessage(e, 'No se pudo guardar'))
     } finally {
       setSaving(false)
     }

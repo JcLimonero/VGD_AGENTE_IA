@@ -1,6 +1,8 @@
 import { useQueryStore } from '@/store/queries'
 import { apiClient } from '@/services/api'
 import { normalizeSavedQuery } from '@/lib/savedQuery'
+import { getApiErrorMessage } from '@/lib/apiError'
+import type { SavedQueryCreatePayload, SavedQueryUpdatePayload } from '@/types'
 
 export function useQuery() {
   const {
@@ -26,8 +28,8 @@ export function useQuery() {
       const list = Array.isArray(data) ? data : []
       setQueries(list.map((item) => normalizeSavedQuery(item as Record<string, unknown>)))
       setError(null)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'No se pudieron cargar las consultas'))
     } finally {
       setLoading(false)
     }
@@ -39,22 +41,22 @@ export function useQuery() {
       const result = await apiClient.executeQuery(queryId)
       setQueryResult(result)
       setError(null)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Error al ejecutar la consulta'))
     } finally {
       setLoading(false)
     }
   }
 
-  const createQuery = async (query: any) => {
+  const createQuery = async (query: SavedQueryCreatePayload) => {
     try {
       const newQuery = await apiClient.createQuery(query)
       const normalized = normalizeSavedQuery(newQuery as Record<string, unknown>)
       addQuery(normalized)
       setError(null)
       return normalized
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'No se pudo crear la consulta'))
       throw err
     }
   }
@@ -64,21 +66,21 @@ export function useQuery() {
       await apiClient.deleteQuery(id)
       removeQuery(id)
       setError(null)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'No se pudo eliminar la consulta'))
       throw err
     }
   }
 
-  const modifyQuery = async (id: string, updates: any) => {
+  const modifyQuery = async (id: string, updates: SavedQueryUpdatePayload) => {
     try {
       const updated = await apiClient.updateQuery(id, updates)
       const normalized = normalizeSavedQuery(updated as Record<string, unknown>)
       updateQuery(id, normalized)
       setError(null)
       return normalized
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'No se pudo actualizar la consulta'))
       throw err
     }
   }

@@ -1,6 +1,9 @@
 import { useAuthStore } from '@/store/auth'
 import { apiClient } from '@/services/api'
+import { getApiErrorMessage } from '@/lib/apiError'
 import type { User } from '@/types'
+
+export type LoginOutcome = { ok: true } | { ok: false; error: string }
 
 function mapLoginUser(apiUser: {
   id: string | number
@@ -20,22 +23,17 @@ function mapLoginUser(apiUser: {
 export function useAuth() {
   const { user, token, login, logout, setUser } = useAuthStore()
 
-  const handleLogin = async (email: string, password: string) => {
+  const handleLogin = async (email: string, password: string): Promise<LoginOutcome> => {
     try {
-      console.log('useAuth - handleLogin called with:', email)
       const response = await apiClient.login(email, password)
-      console.log('useAuth - API response:', response)
       const accessToken = response.access_token as string
       if (!accessToken) {
-        console.error('useAuth - respuesta sin access_token')
-        return false
+        return { ok: false, error: 'Respuesta del servidor sin token de acceso' }
       }
       login(mapLoginUser(response.user), accessToken)
-      console.log('useAuth - login called, token should be set')
-      return true
-    } catch (error) {
-      console.error('Login failed:', error)
-      return false
+      return { ok: true }
+    } catch (error: unknown) {
+      return { ok: false, error: getApiErrorMessage(error, 'Error al iniciar sesión') }
     }
   }
 
@@ -43,8 +41,7 @@ export function useAuth() {
     try {
       await apiClient.logout()
       logout()
-    } catch (error) {
-      console.error('Logout failed:', error)
+    } catch {
       logout()
     }
   }
@@ -58,4 +55,3 @@ export function useAuth() {
     setUser,
   }
 }
-

@@ -53,7 +53,7 @@ export function ChatMessageList({
       ))}
 
       {isLoading && (
-        <div className="flex justify-start">
+        <div className="flex justify-start" role="status" aria-live="polite" aria-busy="true">
           <div className="flex max-w-md flex-col gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-600 dark:text-gray-300">Consultando al agente…</span>
@@ -66,6 +66,7 @@ export function ChatMessageList({
             <button
               type="button"
               onClick={() => cancelPendingRequest()}
+              aria-label="Cancelar consulta al agente"
               className="self-start rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
             >
               Cancelar
@@ -75,7 +76,11 @@ export function ChatMessageList({
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+        <div
+          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </div>
       )}

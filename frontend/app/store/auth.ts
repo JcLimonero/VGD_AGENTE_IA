@@ -17,13 +17,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
   isLoading: false,
 
   login: (user, token) => {
-    console.log('AuthStore - login called with user:', user, 'token:', token?.substring(0, 20) + '...')
     if (typeof window !== 'undefined') {
       localStorage.setItem('auth_token', token)
-      console.log('AuthStore - token saved to localStorage')
     }
     set({ user, token, isLoading: false })
-    console.log('AuthStore - state updated')
   },
 
   logout: () => {

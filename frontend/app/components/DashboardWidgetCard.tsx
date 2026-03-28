@@ -21,6 +21,7 @@ import {
   type WidgetView,
 } from '@/lib/widgetDisplay'
 import { cn } from '@/lib/utils'
+import { getApiErrorMessage } from '@/lib/apiError'
 import type { ApiDashboardWidget, QueryResultData } from '@/types'
 
 const DASH_ALIAS = 'default'
@@ -61,7 +62,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
       setData(queryResultFromExecuteApi(raw as Record<string, unknown>))
     } catch (e: unknown) {
       setData(null)
-      setError(e instanceof Error ? e.message : 'Error al cargar datos')
+      setError(getApiErrorMessage(e, 'Error al cargar datos'))
     } finally {
       setLoading(false)
     }

@@ -238,7 +238,7 @@ class ErrorFixSubagent:
 
         # h_services no tiene nd_client_dms: si el error menciona esa columna en h_services,
         # reemplazar el JOIN directo por el puente h_customer_vehicle.
-        if "nd_client_dms" in err.lower() and "h_services" in fixed.lower():
+        if "nd_client_dms" in lower_error and "h_services" in fixed.lower():
             # Detectar alias de h_services
             svc_aliases = re.findall(
                 r'(?i)\b(?:FROM|JOIN)\s+h_services\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)',
