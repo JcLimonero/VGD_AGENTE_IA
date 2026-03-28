@@ -20,9 +20,9 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 text-xs dark:border-slate-600">
+    <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white text-xs dark:border-slate-600 dark:bg-slate-800">
       <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-600 dark:bg-slate-700">
-        <span className="font-medium text-gray-700 dark:text-gray-300">
+        <span className="font-medium text-gray-700 dark:text-slate-200">
           {results.total_rows} registro{results.total_rows !== 1 ? 's' : ''}
         </span>
         <div className="flex gap-2">
@@ -53,14 +53,14 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
         </pre>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto dark:bg-slate-800">
         <table className="w-full text-left">
           <thead>
-            <tr className="bg-gray-100 dark:bg-slate-600">
+            <tr className="border-b border-gray-200 bg-gray-100 dark:border-slate-600 dark:bg-slate-700">
               {cols.map((col: string) => (
                 <th
                   key={col}
-                  className="whitespace-nowrap px-3 py-2 font-semibold text-gray-700 dark:text-gray-200"
+                  className="whitespace-nowrap px-3 py-2 font-semibold text-gray-800 dark:text-slate-100"
                 >
                   {columnHeaderLabel(col, results.column_labels_es)}
                 </th>
@@ -71,10 +71,14 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
             {displayRows.map((row: Record<string, unknown>, i: number) => (
               <tr
                 key={i}
-                className={i % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-gray-50 dark:bg-slate-750'}
+                className={
+                  i % 2 === 0
+                    ? 'border-b border-gray-100 bg-white text-gray-900 dark:border-slate-700/60 dark:bg-slate-800 dark:text-slate-100'
+                    : 'border-b border-gray-100 bg-gray-50 text-gray-900 dark:border-slate-700/60 dark:bg-slate-900/85 dark:text-slate-100'
+                }
               >
                 {cols.map((col: string) => (
-                  <td key={col} className="whitespace-nowrap px-3 py-2 text-gray-800 dark:text-gray-200">
+                  <td key={col} className="whitespace-nowrap px-3 py-2 text-gray-900 dark:text-slate-100">
                     {row[col] === null || row[col] === undefined ? '—' : String(row[col])}
                   </td>
                 ))}
@@ -85,11 +89,11 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
       </div>
 
       {results.rows.length > 10 && (
-        <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-center dark:border-slate-600 dark:bg-slate-700">
+        <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-center dark:border-slate-600 dark:bg-slate-700/90">
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="text-blue-600 hover:underline dark:text-blue-400"
+            className="font-medium text-blue-600 hover:underline dark:text-blue-300 dark:hover:text-blue-200"
           >
             {showAll ? 'Mostrar menos' : `Ver los ${results.rows.length} registros`}
           </button>

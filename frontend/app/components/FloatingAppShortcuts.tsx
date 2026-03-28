@@ -4,26 +4,36 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { BarChart3, LayoutGrid, LineChart, Settings, X } from 'lucide-react'
+import { BarChart3, GripVertical, LayoutDashboard, LayoutGrid, Settings, X } from 'lucide-react'
 import { QuickAccessStats, type DashboardStatsPayload } from '@/components/QuickAccessStats'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/services/api'
 import { cn } from '@/lib/utils'
 
-const ITEMS = [
+const SHORTCUT_ITEMS = [
   {
     href: '/queries',
     title: 'Mis Widgets',
     description: 'Consultas guardadas listas para ejecutar o añadir al dashboard',
     icon: BarChart3,
     buttonClass: 'bg-blue-600 hover:bg-blue-700 text-white',
+    cta: 'Ver Mis Widgets',
   },
   {
     href: '/dashboard/widgets',
-    title: 'Widget showcase',
-    description: 'Componentes y gráficos disponibles',
-    icon: LineChart,
+    title: 'Configurar widgets',
+    description: 'Añadir al dashboard, vista previa y tipo de gráfica',
+    icon: LayoutDashboard,
     buttonClass: 'bg-purple-600 hover:bg-purple-700 text-white',
+    cta: 'Abrir gestión',
+  },
+  {
+    href: '/dashboard?organize=1',
+    title: 'Organizar tablero',
+    description: 'Mover, redimensionar, actualizar o quitar widgets del dashboard',
+    icon: GripVertical,
+    buttonClass: 'bg-violet-600 hover:bg-violet-700 text-white',
+    cta: 'Modo organizar',
   },
   {
     href: '/settings',
@@ -31,12 +41,13 @@ const ITEMS = [
     description: 'Parámetros y preferencias',
     icon: Settings,
     buttonClass: 'bg-slate-600 hover:bg-slate-700 text-white dark:bg-slate-700 dark:hover:bg-slate-600',
+    cta: 'Configurar',
   },
 ] as const
 
 /**
  * FAB inferior derecho (encima del chat) que abre un diálogo con accesos a Mis Widgets,
- * showcase y configuración — mismo patrón que FloatingChatWidget.
+ * configuración de widgets, organizar tablero y ajustes — mismo patrón que FloatingChatWidget.
  */
 export function FloatingAppShortcuts() {
   const pathname = usePathname()
@@ -74,9 +85,10 @@ export function FloatingAppShortcuts() {
   const fabPosition = chatFabVisible
     ? 'bottom-[5.25rem] right-4 sm:bottom-[5.75rem] sm:right-6'
     : 'bottom-4 right-4 sm:bottom-6 sm:right-6'
+  /** Por encima del FAB de dashboard (9.5rem + alto FAB + margen). */
   const panelBottom = chatFabVisible
-    ? 'bottom-[9.5rem] right-4 sm:bottom-[10.25rem] sm:right-6'
-    : 'bottom-24 right-4 sm:bottom-28 sm:right-6'
+    ? 'bottom-[13.75rem] right-4 sm:bottom-[14.25rem] sm:right-6'
+    : 'bottom-[9.5rem] right-4 sm:bottom-[10.25rem] sm:right-6'
 
   if (hide) return null
 
@@ -102,13 +114,13 @@ export function FloatingAppShortcuts() {
         >
           <Dialog.Title className="sr-only">Accesos rápidos</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Resumen de estadísticas, enlaces a Mis Widgets, widget showcase y configuración.
+            Resumen de estadísticas, Mis Widgets, configurar widgets, organizar tablero y configuración.
           </Dialog.Description>
 
           <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-3 text-white dark:from-slate-800 dark:to-slate-900">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">Accesos rápidos</p>
-              <p className="truncate text-xs text-white/75">Widgets, showcase y ajustes</p>
+              <p className="truncate text-xs text-white/75">Widgets, dashboard y ajustes</p>
             </div>
             <Dialog.Close asChild>
               <button
@@ -130,7 +142,7 @@ export function FloatingAppShortcuts() {
               compact
             />
             <ul className="mt-3 space-y-3">
-              {ITEMS.map(({ href, title, description, icon: Icon, buttonClass }) => (
+              {SHORTCUT_ITEMS.map(({ href, title, description, icon: Icon, buttonClass, cta }) => (
                 <li key={href}>
                   <Dialog.Close asChild>
                     <Link
@@ -150,11 +162,7 @@ export function FloatingAppShortcuts() {
                               buttonClass
                             )}
                           >
-                            {href === '/queries'
-                              ? 'Ver Mis Widgets'
-                              : href === '/dashboard/widgets'
-                                ? 'Ver componentes'
-                                : 'Configurar'}
+                            {cta}
                           </span>
                         </div>
                       </div>

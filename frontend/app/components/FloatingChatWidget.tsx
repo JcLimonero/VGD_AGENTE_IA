@@ -63,7 +63,7 @@ export function FloatingChatWidget() {
           <Dialog.Content
             className={cn(
               'fixed z-[191] flex h-[min(70vh,560px)] w-[min(calc(100vw-2rem),420px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl',
-              'bottom-[9.5rem] right-4 sm:bottom-[10.25rem] sm:right-6',
+              'bottom-[13.75rem] right-4 sm:bottom-[14.25rem] sm:right-6',
               'dark:border-slate-600 dark:bg-slate-900',
               'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
               'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-bottom-2 data-[state=open]:slide-in-from-bottom-2',

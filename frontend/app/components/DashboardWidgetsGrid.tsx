@@ -9,12 +9,10 @@ import type { ApiDashboardWidget } from '@/types'
 import {
   clampWidgetGeometry,
   hasAnyPairwiseOverlap,
-  overlapsAny,
   packWidgetsFlow,
+  resolveLayoutWithPush,
   type WidgetGeometry,
 } from '@/lib/dashboardGridGeometry'
-import { cn } from '@/lib/utils'
-
 const DASH = 'default'
 /** Alto aproximado de una fila lógica de cuadrícula (px), para convertir arrastre vertical en filas. */
 const ROW_UNIT_PX = 56
@@ -23,6 +21,9 @@ type Props = {
   refreshToken?: number
   variant?: 'page' | 'showcase'
   onWidgetsChanged?: () => void
+  /** Solo `variant="page"`: modo organizar controlado por el padre (p. ej. accesos rápidos → `?organize=1`). */
+  organizeOpen?: boolean
+  onOrganizeChange?: (open: boolean) => void
 }
 
 type DragSession = {
@@ -33,19 +34,37 @@ type DragSession = {
   origin: WidgetGeometry
 }
 
-export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWidgetsChanged }: Props) {
+export function DashboardWidgetsGrid({
+  refreshToken = 0,
+  variant = 'page',
+  onWidgetsChanged,
+  organizeOpen,
+  onOrganizeChange,
+}: Props) {
   const [widgets, setWidgets] = useState<ApiDashboardWidget[]>([])
   const [layoutCols, setLayoutCols] = useState(12)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [organize, setOrganize] = useState(false)
-  const [preview, setPreview] = useState<(WidgetGeometry & { widgetId: string }) | null>(null)
+  const [organizeInternal, setOrganizeInternal] = useState(false)
+  const controlledOrganize = variant === 'page' && typeof onOrganizeChange === 'function'
+  const organize = controlledOrganize ? Boolean(organizeOpen) : organizeInternal
+
+  const [previewLayout, setPreviewLayout] = useState<Map<string, WidgetGeometry> | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
 
+  const exitOrganizeMode = useCallback(() => {
+    setPreviewLayout(null)
+    sessionRef.current = null
+    setDragActive(false)
+    if (controlledOrganize) onOrganizeChange(false)
+    else setOrganizeInternal(false)
+  }, [controlledOrganize, onOrganizeChange])
+
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionRef = useRef<DragSession | null>(null)
-  const lastPreviewRef = useRef<(WidgetGeometry & { widgetId: string }) | null>(null)
+  const lastPreviewLayoutRef = useRef<Map<string, WidgetGeometry> | null>(null)
+  const layoutSnapshotRef = useRef<Map<string, WidgetGeometry>>(new Map())
   const widgetsRef = useRef<ApiDashboardWidget[]>([])
   const geomMapRef = useRef<Map<string, WidgetGeometry>>(new Map())
   const layoutColsRef = useRef(12)
@@ -119,9 +138,12 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWid
         startY: e.clientY,
         origin: { ...base },
       }
-      const initial = { widgetId, ...base }
-      lastPreviewRef.current = initial
-      setPreview(initial)
+      layoutSnapshotRef.current = new Map()
+      for (const [id, g] of geomMap) {
+        layoutSnapshotRef.current.set(id, { ...g })
+      }
+      lastPreviewLayoutRef.current = null
+      setPreviewLayout(null)
       setDragActive(true)
     },
     [organize, geomMap]
@@ -161,45 +183,49 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWid
         )
       }
 
-      const wList = widgetsRef.current
-      const gMap = geomMapRef.current
-      const hypothetical = wList.map((w) => {
-        if (w.id === s.widgetId) return { ...w, ...next }
-        const g = gMap.get(w.id)!
-        return { ...w, pos_x: g.pos_x, pos_y: g.pos_y, width: g.width, height: g.height }
-      })
-
-      if (!overlapsAny(s.widgetId, next, hypothetical)) {
-        const pr = { widgetId: s.widgetId, ...next }
-        lastPreviewRef.current = pr
-        setPreview(pr)
+      const resolved = resolveLayoutWithPush(
+        s.widgetId,
+        next,
+        layoutSnapshotRef.current,
+        lc
+      )
+      if (resolved) {
+        lastPreviewLayoutRef.current = resolved
+        setPreviewLayout(new Map(resolved))
       }
     }
 
     const onUp = () => {
       const s = sessionRef.current
-      const p = lastPreviewRef.current
+      const finalLayout = lastPreviewLayoutRef.current
       sessionRef.current = null
-      lastPreviewRef.current = null
+      lastPreviewLayoutRef.current = null
       setDragActive(false)
-      setPreview(null)
+      setPreviewLayout(null)
 
-      if (!s || !p || p.widgetId !== s.widgetId) return
-      const changed =
-        p.pos_x !== s.origin.pos_x ||
-        p.pos_y !== s.origin.pos_y ||
-        p.width !== s.origin.width ||
-        p.height !== s.origin.height
-      if (!changed) return
+      if (!s || !finalLayout) return
+
+      const snap = layoutSnapshotRef.current
+      const updates: { id: string; body: { pos_x: number; pos_y: number; width: number; height: number } }[] = []
+      for (const [id, g] of finalLayout) {
+        const o = snap.get(id)
+        if (
+          !o ||
+          o.pos_x !== g.pos_x ||
+          o.pos_y !== g.pos_y ||
+          o.width !== g.width ||
+          o.height !== g.height
+        ) {
+          updates.push({
+            id,
+            body: { pos_x: g.pos_x, pos_y: g.pos_y, width: g.width, height: g.height },
+          })
+        }
+      }
+      if (updates.length === 0) return
 
       setSavingLayout(true)
-      void apiClient
-        .patchDashboardWidget(DASH, s.widgetId, {
-          pos_x: p.pos_x,
-          pos_y: p.pos_y,
-          width: p.width,
-          height: p.height,
-        })
+      void Promise.all(updates.map((u) => apiClient.patchDashboardWidget(DASH, u.id, u.body)))
         .then(() => loadRef.current())
         .catch(() => {
           /* silencioso; el usuario puede reintentar */
@@ -221,14 +247,8 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWid
   }, [dragActive])
 
   const geomFor = (w: ApiDashboardWidget): WidgetGeometry => {
-    if (preview && preview.widgetId === w.id) {
-      return {
-        pos_x: preview.pos_x,
-        pos_y: preview.pos_y,
-        width: preview.width,
-        height: preview.height,
-      }
-    }
+    const pl = previewLayout?.get(w.id)
+    if (pl) return pl
     return (
       geomMap.get(w.id) ??
       clampWidgetGeometry(
@@ -244,45 +264,29 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWid
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Widgets en tu dashboard</h2>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Cuadrícula de {layoutCols} columnas. Activa <strong className="font-medium">Organizar tablero</strong> para
-            mover cada widget por segmentos o cambiar su tamaño sin descuadrar el diseño.
+            Cuadrícula de {layoutCols} columnas. Desde <strong className="font-medium">Accesos rápidos</strong> (icono de
+            cuadrícula abajo a la derecha) abre <strong className="font-medium">Organizar tablero</strong> o{' '}
+            <strong className="font-medium">Configurar widgets</strong>. Con el modo organizar activo puedes mover,
+            redimensionar, actualizar o quitar widgets; pulsa Listo al terminar.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {widgets.length > 0 && variant === 'page' && (
+        {widgets.length > 0 && variant === 'page' && organize && (
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setOrganize((v) => !v)
-                setPreview(null)
-                sessionRef.current = null
-                setDragActive(false)
-              }}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-sm font-medium transition',
-                organize
-                  ? 'bg-violet-600 text-white hover:bg-violet-700'
-                  : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700'
-              )}
+              onClick={() => exitOrganizeMode()}
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-700"
             >
-              {organize ? 'Listo' : 'Organizar tablero'}
+              Listo
             </button>
-          )}
-          {variant === 'page' && (
-            <Link
-              href="/dashboard/widgets"
-              className="text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
-            >
-              Gestionar widgets
-            </Link>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {organize && widgets.length > 0 && (
         <p className="mb-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-200">
           Arrastra el asa <GripVertical className="inline h-3.5 w-3.5 align-text-bottom" aria-hidden /> para mover. Usa
-          la esquina inferior derecha para redimensionar. Todo encaja en la cuadrícula; no se permiten solapamientos.
+          la esquina inferior derecha para redimensionar. Si ocupas el sitio de otro widget, se desplaza automáticamente.
         </p>
       )}
 
@@ -343,7 +347,12 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWid
                     />
                   </>
                 )}
-                <DashboardWidgetCard widget={w} onRemoved={handleWidgetRemoved} className="h-full" />
+                <DashboardWidgetCard
+                  widget={w}
+                  onRemoved={handleWidgetRemoved}
+                  className="h-full"
+                  showWidgetActions={variant === 'showcase' || organize}
+                />
               </div>
             )
           })}

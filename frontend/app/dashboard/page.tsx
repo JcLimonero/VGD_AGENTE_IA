@@ -1,14 +1,17 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { DashboardWidgetsGrid } from '@/components/DashboardWidgetsGrid'
 
-export default function DashboardPage() {
+function DashboardPageInner() {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { user, isAuthenticated, logout } = useAuth()
+  const [organizeBoard, setOrganizeBoard] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -16,14 +19,21 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, router])
 
+  useEffect(() => {
+    if (searchParams.get('organize') === '1') {
+      setOrganizeBoard(true)
+      router.replace(pathname ?? '/dashboard', { scroll: false })
+    }
+  }, [searchParams, router, pathname])
+
   if (!isAuthenticated) {
     return null
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+    <div className="box-border min-h-screen bg-gray-50 dark:bg-slate-900 p-[30px]">
       <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <div className="flex w-full flex-wrap items-center justify-between gap-4 py-4">
           <div className="min-w-0">
             <AppBreadcrumb
               items={[{ label: 'Dashboard' }]}
@@ -45,9 +55,28 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <DashboardWidgetsGrid />
+      <main className="w-full min-w-0 pt-[30px]">
+        <DashboardWidgetsGrid
+          organizeOpen={organizeBoard}
+          onOrganizeChange={setOrganizeBoard}
+        />
       </main>
     </div>
+  )
+}
+
+function DashboardPageFallback() {
+  return (
+    <div className="box-border min-h-screen bg-gray-50 p-[30px] dark:bg-slate-900">
+      <p className="text-sm text-gray-500 dark:text-gray-400">Cargando dashboard…</p>
+    </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardPageFallback />}>
+      <DashboardPageInner />
+    </Suspense>
   )
 }

@@ -350,6 +350,25 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               )}
               {previewDisplay.showTable && (previewTab === 'table' || !previewShowTabs) && (
                 <div className="space-y-3">
+                  {previewDisplay.showChart && previewShowTabs && previewTab === 'table' && (
+                    <label className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">Tipo de gráfica</span>
+                      <select
+                        value={chartKind}
+                        onChange={(e) => setChartKind(e.target.value as WidgetChartKind)}
+                        className="max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                      >
+                        {WIDGET_CHART_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="w-full text-xs font-normal text-gray-500 dark:text-gray-400 sm:w-auto">
+                        (visible al cambiar a Gráfica)
+                      </span>
+                    </label>
+                  )}
                   <div className="flex justify-end">
                     <button
                       type="button"

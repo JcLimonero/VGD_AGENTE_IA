@@ -3,6 +3,7 @@ import './globals.css'
 import { AuthHydrator } from '@/components/AuthHydrator'
 import { FloatingAppShortcuts } from '@/components/FloatingAppShortcuts'
 import { FloatingChatWidget } from '@/components/FloatingChatWidget'
+import { FloatingDashboardFab } from '@/components/FloatingDashboardFab'
 import { ThemePreferenceBridge } from '@/components/ThemePreferenceBridge'
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
         <ThemePreferenceBridge />
         <AuthHydrator />
         {children}
+        <FloatingDashboardFab />
         <FloatingAppShortcuts />
         <FloatingChatWidget />
       </body>

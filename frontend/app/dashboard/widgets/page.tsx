@@ -20,9 +20,9 @@ export default function WidgetShowcasePage() {
   if (!isAuthenticated) return null
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+    <div className="box-border min-h-screen bg-gray-50 dark:bg-slate-900 p-[30px]">
       <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <div className="flex w-full flex-wrap items-center justify-between gap-4 py-4">
           <div className="min-w-0">
             <AppBreadcrumb
               items={[
@@ -59,7 +59,7 @@ export default function WidgetShowcasePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="w-full min-w-0 space-y-8 pt-[30px]">
         <SavedQueryWidgetPanel onWidgetAdded={() => setWidgetsRefresh((n) => n + 1)} />
         <DashboardWidgetsGrid refreshToken={widgetsRefresh} variant="showcase" />
       </main>
