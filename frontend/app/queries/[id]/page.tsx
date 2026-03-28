@@ -18,7 +18,7 @@ function apiExecuteErrorMessage(err: unknown): string {
     if (Array.isArray(d)) return JSON.stringify(d)
   }
   if (err instanceof Error) return err.message
-  return 'Error al ejecutar la query'
+  return 'Error al ejecutar el widget'
 }
 
 export default function ExecuteQueryPage() {
@@ -57,7 +57,7 @@ export default function ExecuteQueryPage() {
       return
     }
     if (!id) {
-      setError('Query no válida')
+      setError('Widget no válido')
       setLoadingMeta(false)
       return
     }
@@ -103,12 +103,12 @@ export default function ExecuteQueryPage() {
             <AppBreadcrumb
               items={[
                 { label: 'Dashboard', href: '/dashboard' },
-                { label: 'Mis queries', href: '/queries' },
+                { label: 'Mis Widgets', href: '/queries' },
                 { label: query?.name ?? 'Ejecutar' },
               ]}
             />
             <h1 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-              Ejecutar query
+              Ejecutar widget
             </h1>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -122,7 +122,7 @@ export default function ExecuteQueryPage() {
               href="/queries"
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
             >
-              Volver al listado
+              Volver a Mis Widgets
             </Link>
           </div>
         </div>
@@ -130,7 +130,7 @@ export default function ExecuteQueryPage() {
 
       <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         {loadingMeta ? (
-          <p className="text-center text-gray-600 dark:text-gray-300">Cargando query…</p>
+          <p className="text-center text-gray-600 dark:text-gray-300">Cargando widget…</p>
         ) : query ? (
           <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-600 dark:bg-slate-800">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{query.name}</h2>

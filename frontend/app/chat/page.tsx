@@ -5,46 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { useChat } from '@/hooks/useChat'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
-import { AgentResponseDataPanel } from '@/components/AgentResponseDataPanel'
-
-/** Renders simple markdown: **bold**, *italic*, - lists, line breaks */
-function SimpleMarkdown({ text }: { text: string }) {
-  const lines = text.split('\n')
-  return (
-    <div className="space-y-1 text-sm">
-      {lines.map((line, i) => {
-        // List item
-        if (line.match(/^[-•]\s/)) {
-          const content = line.replace(/^[-•]\s/, '')
-          return (
-            <div key={i} className="flex gap-1">
-              <span className="shrink-0">•</span>
-              <span dangerouslySetInnerHTML={{ __html: formatInline(content) }} />
-            </div>
-          )
-        }
-        // Numbered item
-        if (line.match(/^\d+\.\s/)) {
-          return (
-            <div key={i} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
-          )
-        }
-        // Empty line = spacing
-        if (line.trim() === '') return <div key={i} className="h-1" />
-        return (
-          <div key={i} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
-        )
-      })}
-    </div>
-  )
-}
-
-function formatInline(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code class="bg-gray-100 dark:bg-slate-700 px-1 rounded text-xs">$1</code>')
-}
+import { ChatMessageList } from '@/components/ChatMessageList'
 
 export default function ChatPage() {
   const router = useRouter()
@@ -82,7 +43,6 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
-      {/* Header */}
       <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <AppBreadcrumb
@@ -93,7 +53,10 @@ export default function ChatPage() {
           />
 
           <button
-            onClick={() => { logout(); router.push('/auth/login') }}
+            onClick={() => {
+              logout()
+              router.push('/auth/login')
+            }}
             className="text-sm px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg transition"
           >
             Cerrar sesión
@@ -101,71 +64,17 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Chat Container */}
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 overflow-y-auto">
-        <div className="space-y-4">
-          {messages.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-4">💬</div>
-              <p className="text-gray-600 dark:text-gray-400">
-                Comienza una conversación. Pregunta sobre tus datos.
-              </p>
-            </div>
-          )}
-
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {msg.role === 'user' ? (
-                <div className="max-w-xs lg:max-w-md px-4 py-3 rounded-lg bg-blue-600 text-white rounded-br-none">
-                  <p className="text-sm">{msg.content}</p>
-                </div>
-              ) : (
-                <div className="max-w-2xl w-full px-4 py-3 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-bl-none border border-gray-200 dark:border-slate-700">
-                  <AgentResponseDataPanel
-                    message={msg}
-                    summary={<SimpleMarkdown text={msg.content} />}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="flex max-w-md flex-col gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">Consultando al agente…</span>
-                  <div className="flex space-x-1">
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:100ms]" />
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:200ms]" />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => cancelPendingRequest()}
-                  className="self-start rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
-                >
-                  Cancelar consulta
-                </button>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg text-red-600 dark:text-red-200 text-sm">
-              Error: {error}
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
+        <ChatMessageList
+          messages={messages}
+          isLoading={isLoading}
+          error={error}
+          cancelPendingRequest={cancelPendingRequest}
+          messagesEndRef={messagesEndRef}
+          emptyHint="Comienza una conversación. Pregunta sobre tus datos."
+        />
       </main>
 
-      {/* Input Area */}
       <footer className="border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <form
           onSubmit={handleSendMessage}

@@ -49,7 +49,7 @@ export interface ChatMessage {
     query_id?: string
     context?: Record<string, any>
     results?: QueryResultData
-    /** Pregunta del usuario que originó esta respuesta (para guardar en Mis queries). */
+    /** Pregunta del usuario que originó esta respuesta (para guardar en Mis Widgets). */
     user_question?: string
   }
 }

@@ -33,6 +33,7 @@ from agente_dwh.saved_queries_db import (
     db_create_saved_query,
     db_delete_saved_query,
     db_get_saved_query,
+    db_insert_query_snapshot,
     db_list_saved_queries,
     db_update_saved_query,
     user_id_to_int,
@@ -41,6 +42,7 @@ from agente_dwh.dashboard_db import (
     db_create_dashboard_widget,
     db_delete_dashboard_widget,
     db_get_dashboard_detail,
+    db_get_user_dashboard_stats,
     db_list_dashboards,
     db_patch_dashboard_widget,
     resolve_dashboard_id,
@@ -319,13 +321,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if not user_id:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-    # En una implementación real, buscar usuario en BD
-    # Por ahora, devolver datos mock
     return {
         "id": user_id,
         "email": payload.get("sub", "user@example.com"),
-        "display_name": "Usuario",
-        "role": "admin"
+        "display_name": payload.get("display_name") or "Usuario",
+        "role": payload.get("role") or "viewer",
     }
 
 # ============ App FastAPI ============
@@ -384,7 +384,12 @@ async def login(request: LoginRequest):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     access_token = create_access_token(
-        data={"sub": row[1], "user_id": str(row[0])},
+        data={
+            "sub": row[1],
+            "user_id": str(row[0]),
+            "role": row[3],
+            "display_name": row[2],
+        },
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return LoginResponse(
@@ -577,6 +582,7 @@ async def delete_query(query_id: str, current_user: dict = Depends(get_current_u
 @app.post("/api/queries/{query_id}/execute")
 async def execute_query(query_id: str, current_user: dict = Depends(get_current_user)):
     """Ejecutar una query guardada"""
+    qid: int | None = None
     try:
         qid = _parse_saved_query_id_param(query_id)
         try:
@@ -590,29 +596,48 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
 
         agent = get_dwh_agent()
         start_time = datetime.utcnow()
-        results = agent.execute_read_only_sql(stub["sql_text"])
+        err_msg: str | None = None
+        rows: list[dict[str, Any]] = []
+        try:
+            results = agent.execute_read_only_sql(stub["sql_text"])
+            rows = results or []
+        except Exception as run_exc:
+            err_msg = str(run_exc)
+            duration = (datetime.utcnow() - start_time).total_seconds() * 1000
+            try:
+                db_insert_query_snapshot(
+                    qid,
+                    {"error": True},
+                    0,
+                    duration,
+                    False,
+                    err_msg[:2000],
+                )
+            except (RuntimeError, pg_errors.Error):
+                pass
+            raise HTTPException(status_code=500, detail=err_msg) from run_exc
+
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds() * 1000
 
-        rows = results or []
         col_names = list(rows[0].keys()) if rows else []
-
-        # TODO: Guardar snapshot en BD
-        snapshot = {
-            "id": "snapshot_id",
-            "saved_query_id": query_id,
-            "result_data": rows,
-            "row_count": len(rows),
-            "executed_at": datetime.utcnow().isoformat(),
-            "duration_ms": duration,
-            "success": True,
-            "error_message": None,
+        enc_rows = jsonable_encoder(rows[:500])
+        snapshot_payload = {
+            "columns": col_names,
+            "total_rows": len(rows),
+            "preview_rows": enc_rows[:40],
+            "truncated_preview": len(rows) > 40,
         }
+        try:
+            db_insert_query_snapshot(qid, snapshot_payload, len(rows), duration, True, None)
+        except (RuntimeError, pg_errors.Error):
+            pass
 
+        executed_at = datetime.utcnow().isoformat()
         return {
             "query_id": query_id,
-            "executed_at": snapshot["executed_at"],
-            "rows": jsonable_encoder(rows[:500]),
+            "executed_at": executed_at,
+            "rows": enc_rows,
             "column_names": col_names,
             "column_labels_es": spanish_labels_map(col_names) if col_names else {},
             "total_rows": len(rows),
@@ -622,9 +647,21 @@ async def execute_query(query_id: str, current_user: dict = Depends(get_current_
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 # ============ Endpoints de Dashboards ============
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
+    """Métricas del usuario para el panel principal (consultas, ejecuciones, fallos, usuarios si admin)."""
+    uid = _api_user_int_id(current_user)
+    try:
+        return db_get_user_dashboard_stats(uid)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except pg_errors.Error as e:
+        _raise_platform_db_error(e)
+
+
 @app.get("/api/dashboards")
 async def get_dashboards(current_user: dict = Depends(get_current_user)):
     """Listar dashboards del usuario (PostgreSQL)."""

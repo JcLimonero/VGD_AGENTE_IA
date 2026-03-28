@@ -11,9 +11,11 @@ type Props = {
   refreshToken?: number
   /** En la página showcase: oculta el enlace "Gestionar widgets" y acorta textos. */
   variant?: 'page' | 'showcase'
+  /** Tras quitar un widget del tablero (p. ej. refrescar estadísticas del dashboard). */
+  onWidgetsChanged?: () => void
 }
 
-export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page' }: Props) {
+export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page', onWidgetsChanged }: Props) {
   const [widgets, setWidgets] = useState<ApiDashboardWidget[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +35,10 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page' }: Pro
       setLoading(false)
     }
   }, [])
+
+  const handleWidgetRemoved = useCallback(() => {
+    void load().then(() => onWidgetsChanged?.())
+  }, [load, onWidgetsChanged])
 
   useEffect(() => {
     void load()
@@ -78,7 +84,7 @@ export function DashboardWidgetsGrid({ refreshToken = 0, variant = 'page' }: Pro
       {!loading && !error && widgets.length > 0 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {widgets.map((w) => (
-            <DashboardWidgetCard key={w.id} widget={w} onRemoved={() => void load()} />
+            <DashboardWidgetCard key={w.id} widget={w} onRemoved={handleWidgetRemoved} />
           ))}
         </div>
       )}

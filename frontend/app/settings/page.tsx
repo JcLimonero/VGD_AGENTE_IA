@@ -149,7 +149,7 @@ export default function SettingsPage() {
             {[
               { href: '/dashboard', label: 'Dashboard' },
               { href: '/chat', label: 'Chat' },
-              { href: '/queries', label: 'Queries' },
+              { href: '/queries', label: 'Mis Widgets' },
               { href: '/dashboard/widgets', label: 'Widget showcase' },
             ].map((l) => (
               <li key={l.href}>

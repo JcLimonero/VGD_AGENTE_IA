@@ -34,16 +34,16 @@ export default function QueriesPage() {
             <AppBreadcrumb
               items={[
                 { label: 'Dashboard', href: '/dashboard' },
-                { label: 'Mis queries' },
+                { label: 'Mis Widgets' },
               ]}
             />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">📊 Mis Queries</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">📊 Mis Widgets</h1>
           </div>
           <Link
             href="/queries/new"
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
           >
-            + Nueva Query
+            + Nuevo widget
           </Link>
         </div>
       </header>
@@ -58,18 +58,18 @@ export default function QueriesPage() {
 
         {isLoading ? (
           <div className="text-center py-12">
-            <p className="text-gray-600 dark:text-gray-300">Cargando queries...</p>
+            <p className="text-gray-600 dark:text-gray-300">Cargando widgets…</p>
           </div>
         ) : queries.length === 0 ? (
           <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg">
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              No tienes queries guardadas
+              No tienes widgets guardados
             </p>
             <Link
               href="/queries/new"
               className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
             >
-              Crear tu primera Query
+              Crear tu primer widget
             </Link>
           </div>
         ) : (

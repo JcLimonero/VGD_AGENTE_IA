@@ -127,6 +127,17 @@ class APIClient {
   }
 
   // Dashboard
+  async getDashboardStats() {
+    const response = await this.client.get<{
+      saved_queries: number
+      dashboard_widgets: number
+      executions_today: number
+      failed_recent: number
+      users_total: number | null
+    }>('/api/dashboard/stats')
+    return response.data
+  }
+
   async getDashboard(dashboardId: string) {
     const response = await this.client.get(`/api/dashboards/${dashboardId}`)
     return response.data

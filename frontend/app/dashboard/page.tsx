@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { useRouter } from 'next/navigation'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
@@ -23,9 +22,8 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+      <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="min-w-0">
             <AppBreadcrumb
               items={[{ label: 'Dashboard' }]}
@@ -33,12 +31,13 @@ export default function DashboardPage() {
             />
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600 dark:text-gray-300">
-              Hola, {user?.name}
-            </span>
+            <span className="text-sm text-gray-600 dark:text-gray-300">Hola, {user?.name}</span>
             <button
-              onClick={() => { logout(); router.push('/auth/login') }}
-              className="text-sm px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg transition"
+              onClick={() => {
+                logout()
+                router.push('/auth/login')
+              }}
+              className="rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 transition hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
             >
               Cerrar sesión
             </button>
@@ -46,101 +45,8 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Card: Queries */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              📊 Queries
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Gestiona tus consultas SQL guardadas
-            </p>
-            <Link
-              href="/queries"
-              className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
-            >
-              Ver Queries
-            </Link>
-          </div>
-
-          {/* Card: Chat */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              💬 Chat con Agente
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Consulta el DWH usando lenguaje natural
-            </p>
-            <Link
-              href="/chat"
-              className="inline-block px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
-            >
-              Ir al Chat
-            </Link>
-          </div>
-
-          {/* Card: Widgets */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              📈 Widget Showcase
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Componentes y gráficos disponibles
-            </p>
-            <Link
-              href="/dashboard/widgets"
-              className="inline-block px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
-            >
-              Ver componentes
-            </Link>
-          </div>
-
-          {/* Card: Configuración */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              ⚙️ Configuración
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Parámetros y preferencias
-            </p>
-            <Link
-              href="/settings"
-              className="inline-block px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
-            >
-              Configurar
-            </Link>
-          </div>
-        </div>
-
-        <div className="mt-10">
-          <DashboardWidgetsGrid />
-        </div>
-
-        {/* Stats */}
-        <div className="mt-12 bg-white dark:bg-slate-800 rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-            📊 Estadísticas
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[
-              { label: 'Queries Guardadas', value: '0' },
-              { label: 'Ejecuciones Hoy', value: '0' },
-              { label: 'Alertas Activas', value: '0' },
-              { label: 'Usuarios', value: '1' },
-            ].map((stat, i) => (
-              <div key={i} className="text-center p-4 bg-gray-50 dark:bg-slate-700 rounded-lg">
-                <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                  {stat.value}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                  {stat.label}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <DashboardWidgetsGrid />
       </main>
     </div>
   )

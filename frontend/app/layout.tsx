@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthHydrator } from '@/components/AuthHydrator'
+import { FloatingAppShortcuts } from '@/components/FloatingAppShortcuts'
+import { FloatingChatWidget } from '@/components/FloatingChatWidget'
 import { ThemePreferenceBridge } from '@/components/ThemePreferenceBridge'
 
 export const metadata: Metadata = {
@@ -19,6 +21,8 @@ export default function RootLayout({
         <ThemePreferenceBridge />
         <AuthHydrator />
         {children}
+        <FloatingAppShortcuts />
+        <FloatingChatWidget />
       </body>
     </html>
   )

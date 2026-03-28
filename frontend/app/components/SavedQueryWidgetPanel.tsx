@@ -68,7 +68,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
       const list = Array.isArray(data) ? data : []
       setQueries(list.map((item) => normalizeSavedQuery(item as Record<string, unknown>)))
     } catch (e: unknown) {
-      setListError(e instanceof Error ? e.message : 'No se pudieron cargar las consultas')
+      setListError(e instanceof Error ? e.message : 'No se pudieron cargar los widgets')
     } finally {
       setListLoading(false)
     }
@@ -121,7 +121,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
         width: 6,
         height: 4,
         widget_config: {
-          title: selectedQuery?.name ?? 'Consulta',
+          title: selectedQuery?.name ?? 'Widget',
           show_chart: showChart,
           show_table: showTable,
           default_view: resolvedDefaultView,
@@ -155,24 +155,24 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
       </p>
 
       {listLoading ? (
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Cargando consultas…</p>
+        <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Cargando widgets…</p>
       ) : listError ? (
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">{listError}</p>
       ) : queries.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-gray-300 p-4 text-center dark:border-slate-600">
-          <p className="text-sm text-gray-600 dark:text-gray-400">No hay consultas guardadas.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">No hay widgets guardados.</p>
           <Link
             href="/queries/new"
             className="mt-2 inline-block text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
           >
-            Crear una query
+            Crear un widget
           </Link>
         </div>
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-end gap-3">
             <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Consulta guardada</span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Widget guardado</span>
               <select
                 value={selectedId}
                 onChange={(e) => {

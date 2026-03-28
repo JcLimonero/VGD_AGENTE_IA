@@ -227,3 +227,33 @@ def db_delete_saved_query(query_id: int, user_id: int) -> bool:
             n = cur.rowcount
         conn.commit()
     return n > 0
+
+
+def db_insert_query_snapshot(
+    saved_query_id: int,
+    result_data: Dict[str, Any],
+    row_count: int,
+    duration_ms: float,
+    success: bool,
+    error_message: Optional[str] = None,
+) -> None:
+    """Registra una ejecución en query_snapshots (estadísticas / alertas)."""
+    with platform_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO query_snapshots (
+                    saved_query_id, result_data, row_count, duration_ms, success, error_message
+                )
+                VALUES (%s, %s::jsonb, %s, %s, %s, %s)
+                """,
+                (
+                    saved_query_id,
+                    Json(result_data or {}),
+                    row_count,
+                    float(duration_ms),
+                    success,
+                    error_message,
+                ),
+            )
+        conn.commit()

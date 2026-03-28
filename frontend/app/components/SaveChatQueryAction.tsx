@@ -53,9 +53,9 @@ export function SaveChatQueryAction({ userQuestion, sql }: Props) {
   if (done) {
     return (
       <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <span>Query guardada en Mis queries.</span>{' '}
+        <span>Widget guardado en Mis Widgets.</span>{' '}
         <Link href="/queries" className="font-medium underline hover:no-underline">
-          Ver listado
+          Ver Mis Widgets
         </Link>
       </div>
     )
@@ -73,7 +73,7 @@ export function SaveChatQueryAction({ userQuestion, sql }: Props) {
           }}
           className="text-sm font-medium text-violet-600 underline transition hover:text-violet-800 dark:text-violet-400 dark:hover:text-violet-300"
         >
-          Guardar esta consulta en Mis queries
+          Guardar en Mis Widgets
         </button>
       ) : (
         <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-slate-600 dark:bg-slate-900/50">

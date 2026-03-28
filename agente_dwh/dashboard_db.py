@@ -278,3 +278,69 @@ def db_create_dashboard_widget(
     if not row:
         return None
     return _widget_row_to_api(row)
+
+
+def db_get_user_dashboard_stats(user_id: int) -> Dict[str, Any]:
+    """
+    Métricas para el panel del dashboard (usuario autenticado).
+    - saved_queries: filas en Mis Widgets (consultas guardadas).
+    - executions_today: ejecuciones guardadas en query_snapshots con fecha de hoy (TZ del servidor PG).
+    - failed_recent: ejecuciones fallidas últimos 7 días (alertas).
+    - users_total: solo si el usuario es admin en platform_users; resto None.
+    """
+    with platform_connect() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT role FROM platform_users WHERE id = %s", (user_id,))
+            prole = cur.fetchone()
+            is_admin = bool(prole and str(prole.get("role") or "").lower() == "admin")
+
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM saved_queries WHERE user_id = %s",
+                (user_id,),
+            )
+            saved_queries = int(cur.fetchone()["n"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*) AS n FROM dashboard_widgets w
+                INNER JOIN dashboards d ON d.id = w.dashboard_id
+                WHERE d.user_id = %s
+                """,
+                (user_id,),
+            )
+            dashboard_widgets = int(cur.fetchone()["n"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*) AS n FROM query_snapshots qs
+                INNER JOIN saved_queries sq ON sq.id = qs.saved_query_id
+                WHERE sq.user_id = %s AND (qs.executed_at::date = CURRENT_DATE)
+                """,
+                (user_id,),
+            )
+            executions_today = int(cur.fetchone()["n"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*) AS n FROM query_snapshots qs
+                INNER JOIN saved_queries sq ON sq.id = qs.saved_query_id
+                WHERE sq.user_id = %s
+                  AND qs.success = false
+                  AND qs.executed_at >= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+                """,
+                (user_id,),
+            )
+            failed_recent = int(cur.fetchone()["n"])
+
+            users_total: Optional[int] = None
+            if is_admin:
+                cur.execute("SELECT COUNT(*) AS n FROM platform_users")
+                users_total = int(cur.fetchone()["n"])
+
+    return {
+        "saved_queries": saved_queries,
+        "dashboard_widgets": dashboard_widgets,
+        "executions_today": executions_today,
+        "failed_recent": failed_recent,
+        "users_total": users_total,
+    }

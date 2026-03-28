@@ -30,7 +30,7 @@ export default function EditQueryPage() {
       return
     }
     if (!id) {
-      setLoadError('Identificador de query no válido')
+      setLoadError('Identificador de widget no válido')
       setLoading(false)
       return
     }
@@ -48,7 +48,7 @@ export default function EditQueryPage() {
         setSql(q.sql)
       } catch (e: unknown) {
         if (!cancelled) {
-          const msg = e instanceof Error ? e.message : 'No se pudo cargar la query'
+          const msg = e instanceof Error ? e.message : 'No se pudo cargar el widget'
           setLoadError(msg)
         }
       } finally {
@@ -86,11 +86,11 @@ export default function EditQueryPage() {
           <AppBreadcrumb
             items={[
               { label: 'Dashboard', href: '/dashboard' },
-              { label: 'Mis queries', href: '/queries' },
-              { label: 'Editar query' },
+              { label: 'Mis Widgets', href: '/queries' },
+              { label: 'Editar widget' },
             ]}
           />
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Editar query</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Editar widget</h1>
         </div>
       </header>
 
@@ -105,7 +105,7 @@ export default function EditQueryPage() {
                 href="/queries"
                 className="font-medium text-blue-600 underline dark:text-blue-400"
               >
-                Volver a mis queries
+                Volver a Mis Widgets
               </Link>
             </div>
           </div>
