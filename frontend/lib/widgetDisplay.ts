@@ -1,6 +1,8 @@
 /** Configuración persistida en `widget_config` (JSON) para cada widget del dashboard. */
 
-export type WidgetView = 'chart' | 'table'
+import { fixSpanishSemicolonEnyeTypo } from '@/lib/spanishDisplay'
+
+export type WidgetView = 'chart' | 'table' | 'value'
 
 /** Tipo de gráfica elegido al crear el widget (`auto` = misma heurística que el chat). */
 export type WidgetChartKind = 'auto' | 'bar' | 'line' | 'area' | 'pie'
@@ -30,8 +32,9 @@ export function parseWidgetDisplayConfig(config: Record<string, unknown>): {
   title: string
   chartKind: WidgetChartKind
 } {
-  const title =
+  const rawTitle =
     typeof config.title === 'string' && config.title.trim() ? config.title.trim() : 'Consulta'
+  const title = fixSpanishSemicolonEnyeTypo(rawTitle)
 
   const explicitChart = config.show_chart !== undefined
   const explicitTable = config.show_table !== undefined
@@ -46,9 +49,13 @@ export function parseWidgetDisplayConfig(config: Record<string, unknown>): {
     showTable = true
   }
 
-  let defaultView: WidgetView = config.default_view === 'table' ? 'table' : 'chart'
-  if (defaultView === 'chart' && !showChart) defaultView = 'table'
-  if (defaultView === 'table' && !showTable) defaultView = 'chart'
+  let defaultView: WidgetView = 'chart'
+  if (config.default_view === 'table') defaultView = 'table'
+  else if (config.default_view === 'value') defaultView = 'value'
+
+  if (defaultView === 'chart' && !showChart) defaultView = showTable ? 'table' : 'chart'
+  if (defaultView === 'table' && !showTable) defaultView = showChart ? 'chart' : 'table'
+  if (defaultView === 'value' && !showChart && !showTable) defaultView = 'chart'
 
   return { showChart, showTable, defaultView, title, chartKind: parseChartKind(config) }
 }

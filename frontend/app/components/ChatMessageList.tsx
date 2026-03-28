@@ -42,7 +42,11 @@ export function ChatMessageList({
             </div>
           ) : (
             <div className="max-w-[95%] rounded-lg rounded-bl-none border border-gray-200 bg-white px-3 py-2.5 text-gray-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
-              <AgentResponseDataPanel message={msg} summary={<SimpleMarkdown text={msg.content} />} />
+              <AgentResponseDataPanel
+                key={msg.id}
+                message={msg}
+                summary={<SimpleMarkdown text={msg.content} />}
+              />
             </div>
           )}
         </div>

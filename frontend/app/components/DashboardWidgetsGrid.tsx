@@ -261,15 +261,7 @@ export function DashboardWidgetsGrid({
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-600 dark:bg-slate-800">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Widgets en tu dashboard</h2>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Cuadrícula de {layoutCols} columnas. Desde <strong className="font-medium">Accesos rápidos</strong> (icono de
-            cuadrícula abajo a la derecha) abre <strong className="font-medium">Organizar tablero</strong> o{' '}
-            <strong className="font-medium">Configurar widgets</strong>. Con el modo organizar activo puedes mover,
-            redimensionar, actualizar o quitar widgets; pulsa Listo al terminar.
-          </p>
-        </div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Widgets en tu dashboard</h2>
         {widgets.length > 0 && variant === 'page' && organize && (
           <div className="flex flex-wrap items-center gap-2">
             <button

@@ -1,21 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { DataResultTable } from '@/components/DataResultTable'
 import { QueryResultsChart } from '@/components/QueryResultsChart'
-import { downloadQueryResultsCsv } from '@/lib/csvExport'
-import type { ChatMessage } from '@/types'
-import { cn } from '@/lib/utils'
 import { SaveChatQueryAction } from '@/components/SaveChatQueryAction'
+import {
+  effectiveQueryColumnNames,
+  isSingleRowQueryResult,
+  SingleQueryResultValuePanel,
+} from '@/components/SingleQueryResultValue'
+import { downloadQueryResultsCsv } from '@/lib/csvExport'
+import type { ChatMessage, QueryResultData } from '@/types'
+import { cn } from '@/lib/utils'
 
-type TabId = 'summary' | 'chart' | 'table'
-
-const tabs: { id: TabId; label: string }[] = [
-  { id: 'summary', label: 'Resumen' },
-  { id: 'chart', label: 'Gráfica' },
-  { id: 'table', label: 'Tabla' },
-]
+type TabId = 'summary' | 'value' | 'chart' | 'table'
 
 type Props = {
   message: ChatMessage
@@ -26,7 +25,25 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
   const results = message.metadata?.results
   const hasQuery = Boolean(message.metadata?.query_executed && results)
 
-  const [tab, setTab] = useState<TabId>('summary')
+  const showValueTab = Boolean(results && isSingleRowQueryResult(results))
+  const tabs = useMemo(() => {
+    const list: { id: TabId; label: string }[] = [{ id: 'summary', label: 'Resumen' }]
+    if (showValueTab && results) {
+      const nc = effectiveQueryColumnNames(results).length
+      list.push({
+        id: 'value',
+        label: nc === 1 ? 'Solo valor' : 'Valores',
+      })
+    }
+    list.push({ id: 'chart', label: 'Gráfica' }, { id: 'table', label: 'Tabla' })
+    return list
+  }, [showValueTab, results])
+
+  const [tab, setTab] = useState<TabId>(() => {
+    const r = message.metadata?.results
+    if (message.metadata?.query_executed && r && isSingleRowQueryResult(r as QueryResultData)) return 'value'
+    return 'summary'
+  })
 
   if (!hasQuery || !results) {
     return <>{summary}</>
@@ -61,6 +78,8 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
       <div role="tabpanel" className="min-h-[2rem]">
         {tab === 'summary' && <div className="text-sm">{summary}</div>}
 
+        {tab === 'value' && showValueTab && <SingleQueryResultValuePanel results={results} />}
+
         {tab === 'chart' && (
           <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/50">
             <QueryResultsChart data={results} />
@@ -73,7 +92,7 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {results.total_rows} fila{results.total_rows !== 1 ? 's' : ''}
                 {results.total_rows > results.rows.length
-                  ? ` (mostrando ${results.rows.length} en la tabla; descarga el CSV para el conjunto disponible)`
+                  ? ` (mostrando ${results.rows.length} en la tabla. Descarga el CSV para el conjunto completo.)`
                   : null}
               </p>
               <button

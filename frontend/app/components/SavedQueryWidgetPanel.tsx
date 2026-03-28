@@ -1,9 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { DataResultTable } from '@/components/DataResultTable'
 import { QueryResultsChart } from '@/components/QueryResultsChart'
+import {
+  isSingleRowQueryResult,
+  singleRowValueTabLabel,
+  SingleQueryResultValuePanel,
+} from '@/components/SingleQueryResultValue'
 import { apiClient } from '@/services/api'
 import { downloadQueryResultsCsv } from '@/lib/csvExport'
 import { normalizeSavedQuery, queryResultFromExecuteApi } from '@/lib/savedQuery'
@@ -38,6 +43,8 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
   const [showTable, setShowTable] = useState(true)
   const [initialView, setInitialView] = useState<ViewTab>('chart')
   const [previewTab, setPreviewTab] = useState<WidgetView>('chart')
+  /** Tras cada ejecución, una sola fila abre «Solo valor» una vez (no pisa si el usuario ya cambió de pestaña). */
+  const valueIntroForResultRef = useRef(false)
   const [chartKind, setChartKind] = useState<WidgetChartKind>('auto')
 
   const [addLoading, setAddLoading] = useState(false)
@@ -50,8 +57,21 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
   }, [showChart, showTable, initialView])
 
   useEffect(() => {
-    setPreviewTab(resolvedDefaultView)
-  }, [resolvedDefaultView])
+    valueIntroForResultRef.current = false
+  }, [selectedId])
+
+  useEffect(() => {
+    if (!result) return
+    if (isSingleRowQueryResult(result)) {
+      if (!valueIntroForResultRef.current) {
+        valueIntroForResultRef.current = true
+        setPreviewTab('value')
+      }
+    } else {
+      valueIntroForResultRef.current = false
+      setPreviewTab(resolvedDefaultView)
+    }
+  }, [result, resolvedDefaultView])
 
   const previewConfig = useMemo(
     () => ({
@@ -66,6 +86,8 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
 
   const previewDisplay = parseWidgetDisplayConfig(previewConfig)
   const previewShowTabs = previewDisplay.showChart && previewDisplay.showTable
+  const showValuePreview = Boolean(result && isSingleRowQueryResult(result))
+  const needsPreviewTabBar = previewShowTabs || Boolean(showValuePreview && (showChart || showTable))
 
   const loadQueries = useCallback(async () => {
     setListLoading(true)
@@ -99,6 +121,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
 
   const runSelected = async () => {
     if (!selectedId) return
+    valueIntroForResultRef.current = false
     setRunLoading(true)
     setRunError(null)
     setResult(null)
@@ -131,7 +154,10 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
           title: selectedQuery?.name ?? 'Widget',
           show_chart: showChart,
           show_table: showTable,
-          default_view: resolvedDefaultView,
+          default_view:
+            result && isSingleRowQueryResult(result) && previewTab === 'value'
+              ? 'value'
+              : resolvedDefaultView,
           chart_kind: chartKind,
         },
       })
@@ -304,83 +330,110 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
             </p>
           )}
 
-          {result && result.column_names.length > 0 && (
+          {result && (result.rows.length > 0 || result.column_names.length > 0) && (
             <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-600 dark:bg-slate-900/40">
               <p className="mb-3 text-xs font-medium text-gray-500 dark:text-gray-400">Vista previa (lo que verás en el widget)</p>
-              {previewShowTabs && (
+              {needsPreviewTabBar && (
                 <div
                   className="mb-3 flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-gray-100/80 p-1 dark:border-slate-600 dark:bg-slate-900/60"
                   role="tablist"
                   aria-label="Vista previa"
                 >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={previewTab === 'chart'}
-                    onClick={() => setPreviewTab('chart')}
-                    className={cn(
-                      'rounded-md px-3 py-1.5 text-sm font-medium transition',
-                      previewTab === 'chart'
-                        ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
-                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-                    )}
-                  >
-                    Gráfica
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={previewTab === 'table'}
-                    onClick={() => setPreviewTab('table')}
-                    className={cn(
-                      'rounded-md px-3 py-1.5 text-sm font-medium transition',
-                      previewTab === 'table'
-                        ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
-                        : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
-                    )}
-                  >
-                    Tabla
-                  </button>
-                </div>
-              )}
-              {previewDisplay.showChart && (previewTab === 'chart' || !previewShowTabs) && (
-                <div className="rounded-lg border border-gray-100 p-2 dark:border-slate-700">
-                  <QueryResultsChart data={result} chartKind={chartKind} />
-                </div>
-              )}
-              {previewDisplay.showTable && (previewTab === 'table' || !previewShowTabs) && (
-                <div className="space-y-3">
-                  {previewDisplay.showChart && previewShowTabs && previewTab === 'table' && (
-                    <label className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <span className="font-medium">Tipo de gráfica</span>
-                      <select
-                        value={chartKind}
-                        onChange={(e) => setChartKind(e.target.value as WidgetChartKind)}
-                        className="max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-                      >
-                        {WIDGET_CHART_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="w-full text-xs font-normal text-gray-500 dark:text-gray-400 sm:w-auto">
-                        (visible al cambiar a Gráfica)
-                      </span>
-                    </label>
-                  )}
-                  <div className="flex justify-end">
+                  {showChart && (
                     <button
                       type="button"
-                      onClick={() => downloadQueryResultsCsv(result)}
-                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                      role="tab"
+                      aria-selected={previewTab === 'chart'}
+                      onClick={() => setPreviewTab('chart')}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        previewTab === 'chart'
+                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                      )}
                     >
-                      Descargar CSV
+                      Gráfica
                     </button>
-                  </div>
-                  <DataResultTable results={result} />
+                  )}
+                  {showValuePreview && result && (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={previewTab === 'value'}
+                      onClick={() => setPreviewTab('value')}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        previewTab === 'value'
+                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                      )}
+                    >
+                      {singleRowValueTabLabel(result)}
+                    </button>
+                  )}
+                  {showTable && (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={previewTab === 'table'}
+                      onClick={() => setPreviewTab('table')}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        previewTab === 'table'
+                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                      )}
+                    >
+                      Tabla
+                    </button>
+                  )}
                 </div>
               )}
+              {showValuePreview && previewTab === 'value' && (
+                <SingleQueryResultValuePanel results={result} />
+              )}
+              {previewDisplay.showChart &&
+                (!needsPreviewTabBar ? previewTab === 'chart' || !previewShowTabs : previewTab === 'chart') && (
+                  <div className="rounded-lg border border-gray-100 p-2 dark:border-slate-700">
+                    <QueryResultsChart data={result} chartKind={chartKind} />
+                  </div>
+                )}
+              {previewDisplay.showTable &&
+                (!needsPreviewTabBar ? previewTab === 'table' || !previewShowTabs : previewTab === 'table') && (
+                  <div className="space-y-3">
+                    {previewDisplay.showChart && previewTab === 'table' && (
+                      <label className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <span className="font-medium">Tipo de gráfica</span>
+                        <select
+                          value={chartKind}
+                          onChange={(e) => setChartKind(e.target.value as WidgetChartKind)}
+                          className="max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                        >
+                          {WIDGET_CHART_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        {previewShowTabs ? (
+                          <span className="w-full text-xs font-normal text-gray-500 dark:text-gray-400 sm:w-auto">
+                            (visible al cambiar a Gráfica)
+                          </span>
+                        ) : null}
+                      </label>
+                    )}
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => downloadQueryResultsCsv(result)}
+                        className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                      >
+                        Descargar CSV
+                      </button>
+                    </div>
+                    <DataResultTable results={result} />
+                  </div>
+                )}
             </div>
           )}
 

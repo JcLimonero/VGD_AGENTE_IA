@@ -29,6 +29,7 @@ from agente_dwh.column_labels import (
     spanish_column_label,
     spanish_labels_map,
 )
+from agente_dwh.spanish_text import fix_semicolon_enye_typo
 from agente_dwh.saved_queries_db import (
     db_create_saved_query,
     db_delete_saved_query,
@@ -517,8 +518,8 @@ async def create_query(query: QueryCreate, current_user: dict = Depends(get_curr
     try:
         return db_create_saved_query(
             _api_user_int_id(current_user),
-            query.title,
-            query.original_question,
+            fix_semicolon_enye_typo(query.title.strip()),
+            fix_semicolon_enye_typo(query.original_question.strip()),
             query.sql_text,
             query.chart_type,
             query.chart_config,
@@ -553,6 +554,10 @@ async def update_query(query_id: str, updates: QueryUpdate, current_user: dict =
     """Actualizar query"""
     qid = _parse_saved_query_id_param(query_id)
     patch = updates.dict(exclude_unset=True)
+    if "title" in patch and isinstance(patch["title"], str):
+        patch["title"] = fix_semicolon_enye_typo(patch["title"].strip())
+    if "original_question" in patch and isinstance(patch["original_question"], str):
+        patch["original_question"] = fix_semicolon_enye_typo(patch["original_question"].strip())
     if "sql_text" in patch:
         try:
             validate_read_only_sql(patch["sql_text"])
@@ -743,6 +748,9 @@ async def create_widget(dashboard_id: str, widget: WidgetCreate, current_user: d
         sqid = int(str(widget.saved_query_id).strip())
     except ValueError:
         raise HTTPException(status_code=400, detail="saved_query_id inválido")
+    wc = dict(widget.widget_config or {})
+    if isinstance(wc.get("title"), str) and wc["title"].strip():
+        wc["title"] = fix_semicolon_enye_typo(wc["title"].strip())
     try:
         new_widget = db_create_dashboard_widget(
             did,
@@ -752,7 +760,7 @@ async def create_widget(dashboard_id: str, widget: WidgetCreate, current_user: d
             widget.pos_y,
             widget.width,
             widget.height,
-            widget.widget_config or {},
+            wc,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -799,6 +807,10 @@ async def patch_dashboard_widget(
         patch.pop("widget_config", None)
     if not patch:
         raise HTTPException(status_code=400, detail="Nada que actualizar")
+    merge_cfg = patch.get("widget_config")
+    if isinstance(merge_cfg, dict) and isinstance(merge_cfg.get("title"), str) and merge_cfg["title"].strip():
+        merge_cfg = {**merge_cfg, "title": fix_semicolon_enye_typo(merge_cfg["title"].strip())}
+        patch = {**patch, "widget_config": merge_cfg}
     try:
         updated = db_patch_dashboard_widget(
             did,
