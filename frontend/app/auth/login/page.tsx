@@ -49,16 +49,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
-      <div className="w-full max-w-md">
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-center mb-8 text-gray-900 dark:text-white">
-            VGD Agente IA
-          </h1>
+    <div className="min-h-screen flex items-center justify-center bg-[#1a1a1a] text-[#1a1a1a]">
+      <div className="w-full max-w-md px-4 py-10">
+        <div className="rounded-[32px] border border-[#0d0d0d] bg-[#f2f2f2] shadow-2xl shadow-black/20 p-8">
+          <div className="flex flex-col items-center gap-4 text-center mb-8">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#1a1a1a] shadow-lg shadow-black/40">
+              <img
+                src="https://grupovanguardia.com/images/logo.png"
+                alt="Grupo Vanguardia"
+                className="h-12 w-auto"
+              />
+            </div>
+            <h1 className="text-3xl font-semibold text-[#1a1a1a]">
+              VGD Agente IA
+            </h1>
+          </div>
 
           {sessionNotice && (
             <div
-              className="mb-6 p-4 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              className="mb-6 rounded-lg border border-[#1a1a1a] bg-white p-4 text-sm text-[#1a1a1a]"
               role="status"
             >
               {sessionNotice}
@@ -67,16 +76,16 @@ export default function LoginPage() {
 
           {error && (
             <div
-              className="mb-6 p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg text-red-600 dark:text-red-200 text-sm"
+              className="mb-6 rounded-lg border border-red-600 bg-red-50 p-4 text-sm text-red-700"
               role="alert"
             >
               {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-[#1a1a1a] mb-2">
                 Email
               </label>
               <input
@@ -84,13 +93,13 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
+                className="w-full rounded-2xl border border-[#1a1a1a] bg-white px-4 py-3 text-[#1a1a1a] outline-none transition focus:border-[#1a1a1a] focus:ring-2 focus:ring-[#1a1a1a]/20"
                 placeholder="usuario@ejemplo.com"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-[#1a1a1a] mb-2">
                 Contraseña
               </label>
               <input
@@ -98,7 +107,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
+                className="w-full rounded-2xl border border-[#1a1a1a] bg-white px-4 py-3 text-[#1a1a1a] outline-none transition focus:border-[#1a1a1a] focus:ring-2 focus:ring-[#1a1a1a]/20"
                 placeholder="••••••••"
               />
             </div>
@@ -106,7 +115,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg transition"
+              className="w-full rounded-full bg-[#1a1a1a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#333] disabled:opacity-50"
             >
               {isLoading ? 'Cargando...' : 'Iniciar Sesión'}
             </button>

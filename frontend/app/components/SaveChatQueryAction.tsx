@@ -71,7 +71,7 @@ export function SaveChatQueryAction({ userQuestion, sql }: Props) {
             setTitle(defaultTitleFromQuestion(userQuestion))
             setErr(null)
           }}
-          className="text-sm font-medium text-violet-600 underline transition hover:text-violet-800 dark:text-violet-400 dark:hover:text-violet-300"
+          className="text-sm font-medium text-slate-600 underline transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-300"
         >
           Guardar en Mis Widgets
         </button>
@@ -95,7 +95,7 @@ export function SaveChatQueryAction({ userQuestion, sql }: Props) {
               type="button"
               disabled={saving}
               onClick={() => void handleSave()}
-              className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+              className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
             >
               {saving ? 'Guardando…' : 'Guardar'}
             </button>

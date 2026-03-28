@@ -80,7 +80,7 @@ export function FloatingChatWidget() {
               natural.
             </Dialog.Description>
 
-            <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3 text-white dark:from-violet-700 dark:to-indigo-800">
+            <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-slate-600 to-indigo-600 px-4 py-3 text-white dark:from-slate-700 dark:to-indigo-800">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">Agente DWH</p>
                 <p className="truncate text-xs text-white/80">Misma conversación que en Chat</p>
@@ -127,12 +127,12 @@ export function FloatingChatWidget() {
                   onChange={(e) => setInput(e.target.value)}
                   disabled={isLoading}
                   placeholder="Escribe tu pregunta…"
-                  className="min-w-0 flex-1 rounded-xl border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-gray-400 disabled:opacity-50"
+                  className="min-w-0 flex-1 rounded-xl border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-500 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-gray-400 disabled:opacity-50"
                 />
                 <button
                   type="submit"
                   disabled={isLoading || !input.trim()}
-                  className="shrink-0 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                  className="shrink-0 rounded-xl bg-slate-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
                 >
                   Enviar
                 </button>
@@ -146,10 +146,10 @@ export function FloatingChatWidget() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'fixed bottom-4 right-4 z-[192] flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition focus:outline-none focus:ring-4 focus:ring-violet-500/40 sm:bottom-6 sm:right-6',
+          'fixed bottom-4 right-4 z-[192] flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition focus:outline-none focus:ring-4 focus:ring-slate-500/40 sm:bottom-6 sm:right-6',
           open
             ? 'bg-slate-700 text-white hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500'
-            : 'bg-violet-600 text-white hover:bg-violet-700'
+            : 'bg-slate-600 text-white hover:bg-slate-700'
         )}
         aria-expanded={open}
         aria-haspopup="dialog"

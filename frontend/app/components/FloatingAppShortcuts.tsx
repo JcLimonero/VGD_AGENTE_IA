@@ -25,7 +25,7 @@ const SHORTCUT_ITEMS = [
     description:
       'Añadir consultas al tablero, vista y gráfica, y organizar la cuadrícula (mover y redimensionar)',
     icon: LayoutDashboard,
-    buttonClass: 'bg-purple-600 hover:bg-purple-700 text-white',
+    buttonClass: 'bg-slate-600 hover:bg-slate-700 text-white',
     cta: 'Abrir configuración',
   },
   {
@@ -140,7 +140,7 @@ export function FloatingAppShortcuts() {
                   <Dialog.Close asChild>
                     <Link
                       href={href}
-                      className="block rounded-xl border border-gray-200 bg-gray-50/80 p-4 transition hover:border-violet-300 hover:bg-white dark:border-slate-600 dark:bg-slate-800/80 dark:hover:border-violet-600 dark:hover:bg-slate-800"
+                      className="block rounded-xl border border-gray-200 bg-gray-50/80 p-4 transition hover:border-slate-300 hover:bg-white dark:border-slate-600 dark:bg-slate-800/80 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                     >
                       <div className="flex gap-3">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-200">

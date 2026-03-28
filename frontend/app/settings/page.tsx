@@ -106,7 +106,7 @@ export default function SettingsPage() {
                 key={opt.value}
                 className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${
                   theme === opt.value
-                    ? 'border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/40'
+                    ? 'border-slate-500 bg-slate-50 dark:border-slate-500 dark:bg-slate-950/40'
                     : 'border-gray-200 hover:border-gray-300 dark:border-slate-600 dark:hover:border-slate-500'
                 }`}
               >
@@ -116,7 +116,7 @@ export default function SettingsPage() {
                   value={opt.value}
                   checked={themeReady && theme === opt.value}
                   onChange={() => handleTheme(opt.value)}
-                  className="mt-1 text-violet-600 focus:ring-violet-500"
+                  className="mt-1 text-slate-600 focus:ring-slate-500"
                 />
                 <span>
                   <span className="block font-medium text-gray-900 dark:text-white">{opt.label}</span>

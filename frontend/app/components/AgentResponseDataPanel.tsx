@@ -66,7 +66,7 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
             className={cn(
               'rounded-md px-3 py-1.5 text-sm font-medium transition',
               tab === t.id
-                ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-300'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
             )}
           >
@@ -98,7 +98,7 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
               <button
                 type="button"
                 onClick={() => downloadQueryResultsCsv(results)}
-                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700"
+                className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700"
               >
                 Descargar CSV
               </button>

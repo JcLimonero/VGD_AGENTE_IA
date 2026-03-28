@@ -74,7 +74,7 @@ export function QuickAccessStats({ stats, loading, error, onRefresh, compact }: 
           type="button"
           onClick={() => void onRefresh()}
           disabled={loading}
-          className="text-xs font-medium text-violet-600 hover:underline disabled:opacity-50 dark:text-violet-400"
+          className="text-xs font-medium text-slate-600 hover:underline disabled:opacity-50 dark:text-slate-400"
         >
           {loading ? 'Actualizando…' : 'Actualizar'}
         </button>
@@ -88,7 +88,7 @@ export function QuickAccessStats({ stats, loading, error, onRefresh, compact }: 
           >
             <div
               className={cn(
-                'font-bold text-violet-600 dark:text-violet-400',
+                'font-bold text-slate-600 dark:text-slate-400',
                 compact ? 'text-base' : 'text-lg'
               )}
             >

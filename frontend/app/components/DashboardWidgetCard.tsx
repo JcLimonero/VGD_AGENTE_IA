@@ -163,7 +163,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-gray-400 dark:hover:bg-slate-700 dark:hover:text-white"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 dark:text-gray-400 dark:hover:bg-slate-700 dark:hover:text-white"
                   aria-label="Vista y tipo de gráfica"
                 >
                   <SlidersHorizontal className="h-4 w-4" aria-hidden />
@@ -193,12 +193,12 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                             className={cn(
                               'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
                               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                              'data-[highlighted]:bg-violet-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                              'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
                             )}
                           >
                             <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                               <DropdownMenu.ItemIndicator className="inline-flex">
-                                <span className="h-1.5 w-1.5 rounded-full bg-violet-600 dark:bg-violet-400" />
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
                               </DropdownMenu.ItemIndicator>
                             </span>
                             Gráfica
@@ -210,12 +210,12 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                             className={cn(
                               'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
                               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                              'data-[highlighted]:bg-violet-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                              'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
                             )}
                           >
                             <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                               <DropdownMenu.ItemIndicator className="inline-flex">
-                                <span className="h-1.5 w-1.5 rounded-full bg-violet-600 dark:bg-violet-400" />
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
                               </DropdownMenu.ItemIndicator>
                             </span>
                             {singleRowValueTabLabel(data)}
@@ -227,12 +227,12 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                             className={cn(
                               'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
                               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                              'data-[highlighted]:bg-violet-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                              'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
                             )}
                           >
                             <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                               <DropdownMenu.ItemIndicator className="inline-flex">
-                                <span className="h-1.5 w-1.5 rounded-full bg-violet-600 dark:bg-violet-400" />
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
                               </DropdownMenu.ItemIndicator>
                             </span>
                             Tabla
@@ -258,12 +258,12 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                             className={cn(
                               'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
                               'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-                              'data-[highlighted]:bg-violet-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                              'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
                             )}
                           >
                             <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                               <DropdownMenu.ItemIndicator className="inline-flex">
-                                <span className="h-1.5 w-1.5 rounded-full bg-violet-600 dark:bg-violet-400" />
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
                               </DropdownMenu.ItemIndicator>
                             </span>
                             {opt.label}
@@ -287,7 +287,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                 type="button"
                 onClick={() => void load()}
                 disabled={loading}
-                className="rounded-lg px-2 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 disabled:opacity-50 dark:text-violet-400 dark:hover:bg-slate-700"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
               >
                 Actualizar
               </button>
@@ -325,7 +325,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                     <button
                       type="button"
                       onClick={() => downloadQueryResultsCsv(data)}
-                      className="rounded-lg bg-violet-600 px-2 py-1 text-xs font-medium text-white hover:bg-violet-700"
+                      className="rounded-lg bg-slate-600 px-2 py-1 text-xs font-medium text-white hover:bg-slate-700"
                     >
                       CSV
                     </button>

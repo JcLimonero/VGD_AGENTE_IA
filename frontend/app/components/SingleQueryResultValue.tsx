@@ -46,8 +46,8 @@ export function SingleQueryResultValuePanel({ results }: { results: QueryResultD
     const display = raw === null || raw === undefined ? '—' : String(raw)
     const label = columnHeaderLabel(col, results.column_labels_es)
     return (
-      <div className="rounded-xl border border-violet-200 bg-gradient-to-b from-violet-50 to-white px-5 py-8 text-center dark:border-violet-900/40 dark:from-violet-950/35 dark:to-slate-800/60">
-        <p className="text-xs font-medium uppercase tracking-wide text-violet-600/90 dark:text-violet-400/90">
+      <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-5 py-8 text-center dark:border-slate-900/40 dark:from-slate-950/35 dark:to-slate-800/60">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-600/90 dark:text-slate-400/90">
           {label}
         </p>
         <p className="mt-3 break-words font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white sm:text-3xl">

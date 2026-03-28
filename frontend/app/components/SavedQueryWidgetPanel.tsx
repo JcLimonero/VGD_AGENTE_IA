@@ -179,7 +179,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
   }
 
   return (
-    <section className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-white p-6 shadow-sm dark:border-violet-900/40 dark:from-violet-950/40 dark:to-slate-800">
+    <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white p-6 shadow-sm dark:border-slate-900/40 dark:from-slate-950/40 dark:to-slate-800">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
         Widget con consulta almacenada
       </h2>
@@ -197,7 +197,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
           <p className="text-sm text-gray-600 dark:text-gray-400">No hay widgets guardados.</p>
           <Link
             href="/queries/new"
-            className="mt-2 inline-block text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
+            className="mt-2 inline-block text-sm font-medium text-slate-600 hover:underline dark:text-slate-400"
           >
             Crear un widget
           </Link>
@@ -230,7 +230,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               type="button"
               disabled={!selectedId || runLoading}
               onClick={() => void runSelected()}
-              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+              className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
             >
               {runLoading ? 'Ejecutando…' : 'Ejecutar y previsualizar'}
             </button>
@@ -238,7 +238,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               type="button"
               disabled={!selectedId || addLoading || (!showChart && !showTable)}
               onClick={() => void addWidget()}
-              className="rounded-lg border border-violet-600 bg-white px-4 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-50 disabled:opacity-50 dark:border-violet-500 dark:bg-slate-800 dark:text-violet-300 dark:hover:bg-slate-700"
+              className="rounded-lg border border-slate-600 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               {addLoading ? 'Guardando…' : 'Añadir al dashboard'}
             </button>
@@ -255,7 +255,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                     type="checkbox"
                     checked={showChart}
                     onChange={(e) => toggleShowChart(e.target.checked)}
-                    className="rounded border-gray-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600"
+                    className="rounded border-gray-300 text-slate-600 focus:ring-slate-500 dark:border-slate-600"
                   />
                   Gráfica
                 </label>
@@ -264,7 +264,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                     type="checkbox"
                     checked={showTable}
                     onChange={(e) => toggleShowTable(e.target.checked)}
-                    className="rounded border-gray-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600"
+                    className="rounded border-gray-300 text-slate-600 focus:ring-slate-500 dark:border-slate-600"
                   />
                   Tabla
                 </label>
@@ -297,7 +297,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       name="initialView"
                       checked={initialView === 'chart'}
                       onChange={() => setInitialView('chart')}
-                      className="text-violet-600 focus:ring-violet-500"
+                      className="text-slate-600 focus:ring-slate-500"
                     />
                     Gráfica
                   </label>
@@ -307,7 +307,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       name="initialView"
                       checked={initialView === 'table'}
                       onChange={() => setInitialView('table')}
-                      className="text-violet-600 focus:ring-violet-500"
+                      className="text-slate-600 focus:ring-slate-500"
                     />
                     Tabla
                   </label>
@@ -348,7 +348,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       className={cn(
                         'rounded-md px-3 py-1.5 text-sm font-medium transition',
                         previewTab === 'chart'
-                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-300'
                           : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                       )}
                     >
@@ -364,7 +364,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       className={cn(
                         'rounded-md px-3 py-1.5 text-sm font-medium transition',
                         previewTab === 'value'
-                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-300'
                           : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                       )}
                     >
@@ -380,7 +380,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       className={cn(
                         'rounded-md px-3 py-1.5 text-sm font-medium transition',
                         previewTab === 'table'
-                          ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300'
+                          ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-300'
                           : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
                       )}
                     >
@@ -426,7 +426,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                       <button
                         type="button"
                         onClick={() => downloadQueryResultsCsv(result)}
-                        className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                        className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
                       >
                         Descargar CSV
                       </button>

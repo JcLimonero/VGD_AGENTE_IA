@@ -269,7 +269,7 @@ export function DashboardWidgetsGrid({
               <button
                 type="button"
                 onClick={() => onOrganizeChange?.(true)}
-                className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 transition hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-200 dark:hover:bg-violet-900/40"
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-800 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-200 dark:hover:bg-slate-900/40"
               >
                 Organizar cuadrícula
               </button>
@@ -278,7 +278,7 @@ export function DashboardWidgetsGrid({
               <button
                 type="button"
                 onClick={() => exitOrganizeMode()}
-                className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-700"
+                className="rounded-lg bg-slate-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-700"
               >
                 Listo
               </button>
@@ -288,7 +288,7 @@ export function DashboardWidgetsGrid({
       </div>
 
       {organize && widgets.length > 0 && (
-        <p className="mb-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-200">
+        <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 dark:border-slate-900/50 dark:bg-slate-950/40 dark:text-slate-200">
           Arrastra el asa <GripVertical className="inline h-3.5 w-3.5 align-text-bottom" aria-hidden /> para mover. Usa
           la esquina inferior derecha para redimensionar. Si ocupas el sitio de otro widget, se desplaza automáticamente.
         </p>
@@ -296,7 +296,7 @@ export function DashboardWidgetsGrid({
 
       {loading && <p className="text-sm text-gray-500 dark:text-gray-400">Cargando widgets…</p>}
       {savingLayout && (
-        <p className="mb-2 text-sm text-violet-600 dark:text-violet-400">Guardando posición…</p>
+        <p className="mb-2 text-sm text-slate-600 dark:text-slate-400">Guardando posición…</p>
       )}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       {!loading && !error && widgets.length === 0 && (
@@ -306,7 +306,7 @@ export function DashboardWidgetsGrid({
           ) : (
             <>
               Aún no hay widgets en tu dashboard por defecto. Añade uno desde{' '}
-              <Link href="/dashboard/widgets" className="font-medium text-violet-600 underline dark:text-violet-400">
+              <Link href="/dashboard/widgets" className="font-medium text-slate-600 underline dark:text-slate-400">
                 Configurar widgets
               </Link>
               .
@@ -340,14 +340,14 @@ export function DashboardWidgetsGrid({
                       type="button"
                       aria-label={`Mover widget ${w.id}`}
                       onPointerDown={(e) => startDrag(e, w.id, 'move')}
-                      className="absolute left-1 top-1 z-20 flex h-8 w-8 cursor-grab items-center justify-center rounded-md border border-violet-300 bg-white/95 text-violet-700 shadow-sm active:cursor-grabbing dark:border-violet-700 dark:bg-slate-900/95 dark:text-violet-300"
+                      className="absolute left-1 top-1 z-20 flex h-8 w-8 cursor-grab items-center justify-center rounded-md border border-slate-300 bg-white/95 text-slate-700 shadow-sm active:cursor-grabbing dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300"
                     >
                       <GripVertical className="h-4 w-4" aria-hidden />
                     </button>
                     <div
                       role="presentation"
                       onPointerDown={(e) => startDrag(e, w.id, 'resize')}
-                      className="absolute bottom-1 right-1 z-20 h-4 w-4 cursor-se-resize rounded-sm border-2 border-violet-500 bg-white/90 dark:border-violet-400 dark:bg-slate-900/90"
+                      className="absolute bottom-1 right-1 z-20 h-4 w-4 cursor-se-resize rounded-sm border-2 border-slate-500 bg-white/90 dark:border-slate-400 dark:bg-slate-900/90"
                     />
                   </>
                 )}
