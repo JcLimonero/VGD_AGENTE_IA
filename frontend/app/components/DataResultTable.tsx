@@ -2,9 +2,20 @@
 
 import { useState } from 'react'
 import { columnHeaderLabel } from '@/lib/columnLabels'
+import { tableAccentClasses, type TableAccentId } from '@/lib/tableAccent'
+import { useTableAccentId } from '@/hooks/useTableAccent'
 import type { QueryResultData } from '@/types'
 
-export function DataResultTable({ results }: { results: QueryResultData }) {
+type Props = {
+  results: QueryResultData
+  /** Si se omite o es `undefined`, se usa el color de Configuración. */
+  accentId?: TableAccentId | null
+}
+
+export function DataResultTable({ results, accentId }: Props) {
+  const globalAccent = useTableAccentId()
+  const resolvedAccent = accentId != null ? accentId : globalAccent
+  const c = tableAccentClasses(resolvedAccent)
   const [showAll, setShowAll] = useState(false)
   const [showSql, setShowSql] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -20,9 +31,13 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white text-xs dark:border-slate-600 dark:bg-slate-800">
-      <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-600 dark:bg-slate-700">
-        <span className="font-medium text-gray-700 dark:text-slate-200">
+    <div
+      className={`mt-3 overflow-hidden rounded-lg border bg-white text-xs dark:bg-slate-800 ${c.outer}`}
+    >
+      <div
+        className={`flex items-center justify-between border-b px-3 py-2 ${c.headerBar}`}
+      >
+        <span className={`font-medium ${c.headerBarText}`}>
           {results.total_rows} registro{results.total_rows !== 1 ? 's' : ''}
         </span>
         <div className="flex gap-2">
@@ -31,14 +46,14 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
               <button
                 type="button"
                 onClick={() => setShowSql((v) => !v)}
-                className="text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                className={`underline ${c.toolbarMuted}`}
               >
                 {showSql ? 'Ocultar SQL' : 'Ver SQL'}
               </button>
               <button
                 type="button"
                 onClick={handleCopySql}
-                className="text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                className={`underline ${c.toolbarMuted}`}
               >
                 {copied ? '✓ Copiado' : 'Copiar SQL'}
               </button>
@@ -48,7 +63,9 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
       </div>
 
       {showSql && results.generated_sql && (
-        <pre className="overflow-x-auto whitespace-pre-wrap bg-gray-900 px-3 py-2 text-xs text-green-400">
+        <pre
+          className={`overflow-x-auto whitespace-pre-wrap px-3 py-2 text-xs ${c.sqlBlock}`}
+        >
           {results.generated_sql}
         </pre>
       )}
@@ -56,12 +73,9 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
       <div className="overflow-x-auto dark:bg-slate-800">
         <table className="w-full text-left">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-100 dark:border-slate-600 dark:bg-slate-700">
+            <tr className={`border-b ${c.theadRow}`}>
               {cols.map((col: string) => (
-                <th
-                  key={col}
-                  className="whitespace-nowrap px-3 py-2 font-semibold text-gray-800 dark:text-slate-100"
-                >
+                <th key={col} className={`whitespace-nowrap px-3 py-2 font-semibold ${c.thText}`}>
                   {columnHeaderLabel(col, results.column_labels_es)}
                 </th>
               ))}
@@ -71,14 +85,10 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
             {displayRows.map((row: Record<string, unknown>, i: number) => (
               <tr
                 key={i}
-                className={
-                  i % 2 === 0
-                    ? 'border-b border-gray-100 bg-white text-gray-900 dark:border-slate-700/60 dark:bg-slate-800 dark:text-slate-100'
-                    : 'border-b border-gray-100 bg-gray-50 text-gray-900 dark:border-slate-700/60 dark:bg-slate-900/85 dark:text-slate-100'
-                }
+                className={`border-b ${i % 2 === 0 ? c.rowEven : c.rowOdd}`}
               >
                 {cols.map((col: string) => (
-                  <td key={col} className="whitespace-nowrap px-3 py-2 text-gray-900 dark:text-slate-100">
+                  <td key={col} className={`whitespace-nowrap px-3 py-2 ${c.cellText}`}>
                     {row[col] === null || row[col] === undefined ? '—' : String(row[col])}
                   </td>
                 ))}
@@ -89,11 +99,11 @@ export function DataResultTable({ results }: { results: QueryResultData }) {
       </div>
 
       {results.rows.length > 10 && (
-        <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-center dark:border-slate-600 dark:bg-slate-700/90">
+        <div className={`border-t px-3 py-2 text-center ${c.footerBar}`}>
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="font-medium text-blue-600 hover:underline dark:text-blue-300 dark:hover:text-blue-200"
+            className={`font-medium ${c.footerLink}`}
           >
             {showAll ? 'Mostrar menos' : `Ver los ${results.rows.length} registros`}
           </button>

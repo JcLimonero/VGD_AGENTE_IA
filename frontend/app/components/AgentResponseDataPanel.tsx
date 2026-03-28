@@ -11,6 +11,7 @@ import {
   SingleQueryResultValuePanel,
 } from '@/components/SingleQueryResultValue'
 import { downloadQueryResultsCsv } from '@/lib/csvExport'
+import { useTableAccentId } from '@/hooks/useTableAccent'
 import type { ChatMessage, QueryResultData } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -22,6 +23,7 @@ type Props = {
 }
 
 export function AgentResponseDataPanel({ message, summary }: Props) {
+  const tableAccent = useTableAccentId()
   const results = message.metadata?.results
   const hasQuery = Boolean(message.metadata?.query_executed && results)
 
@@ -82,7 +84,7 @@ export function AgentResponseDataPanel({ message, summary }: Props) {
 
         {tab === 'chart' && (
           <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/50">
-            <QueryResultsChart data={results} />
+            <QueryResultsChart data={results} accentId={tableAccent} />
           </div>
         )}
 

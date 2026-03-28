@@ -18,6 +18,7 @@ import {
   type WidgetChartKind,
   type WidgetView,
 } from '@/lib/widgetDisplay'
+import { TABLE_ACCENT_OPTIONS, type TableAccentId } from '@/lib/tableAccent'
 import { cn } from '@/lib/utils'
 import type { Query, QueryResultData } from '@/types'
 
@@ -46,6 +47,8 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
   /** Tras cada ejecución, una sola fila abre «Solo valor» una vez (no pisa si el usuario ya cambió de pestaña). */
   const valueIntroForResultRef = useRef(false)
   const [chartKind, setChartKind] = useState<WidgetChartKind>('auto')
+  /** `inherit` = usar el color de Configuración al mostrar la tabla en el widget. */
+  const [tableAccentChoice, setTableAccentChoice] = useState<TableAccentId | 'inherit'>('inherit')
 
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg, setAddMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
@@ -80,8 +83,9 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
       show_table: showTable,
       default_view: resolvedDefaultView,
       chart_kind: chartKind,
+      ...(showTable && tableAccentChoice !== 'inherit' ? { table_accent: tableAccentChoice } : {}),
     }),
-    [queries, selectedId, showChart, showTable, resolvedDefaultView, chartKind]
+    [queries, selectedId, showChart, showTable, resolvedDefaultView, chartKind, tableAccentChoice]
   )
 
   const previewDisplay = parseWidgetDisplayConfig(previewConfig)
@@ -159,6 +163,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               ? 'value'
               : resolvedDefaultView,
           chart_kind: chartKind,
+          ...(showTable && tableAccentChoice !== 'inherit' ? { table_accent: tableAccentChoice } : {}),
         },
       })
       setAddMsg({ type: 'ok', text: 'Widget guardado en tu dashboard por defecto.' })
@@ -215,6 +220,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                   setRunError(null)
                   setAddMsg(null)
                   setChartKind('auto')
+                  setTableAccentChoice('inherit')
                 }}
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
               >
@@ -269,6 +275,30 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                   Tabla
                 </label>
               </div>
+              {showTable && (
+                <label className="flex max-w-md flex-col gap-1 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="font-medium">Color de la tabla</span>
+                  <select
+                    value={tableAccentChoice}
+                    onChange={(e) =>
+                      setTableAccentChoice(
+                        e.target.value === 'inherit' ? 'inherit' : (e.target.value as TableAccentId)
+                      )
+                    }
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                  >
+                    <option value="inherit">Predeterminado (configuración)</option>
+                    {TABLE_ACCENT_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                    Solo afecta a la vista tabla de este widget. Puedes cambiarlo después en el tablero.
+                  </span>
+                </label>
+              )}
               {showChart && (
                 <label className="flex max-w-md flex-col gap-1 text-sm text-gray-700 dark:text-gray-300">
                   <span className="font-medium">Tipo de gráfica</span>
@@ -395,7 +425,11 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               {previewDisplay.showChart &&
                 (!needsPreviewTabBar ? previewTab === 'chart' || !previewShowTabs : previewTab === 'chart') && (
                   <div className="rounded-lg border border-gray-100 p-2 dark:border-slate-700">
-                    <QueryResultsChart data={result} chartKind={chartKind} />
+                    <QueryResultsChart
+                      data={result}
+                      chartKind={chartKind}
+                      accentId={tableAccentChoice === 'inherit' ? undefined : tableAccentChoice}
+                    />
                   </div>
                 )}
               {previewDisplay.showTable &&
@@ -431,7 +465,10 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                         Descargar CSV
                       </button>
                     </div>
-                    <DataResultTable results={result} />
+                    <DataResultTable
+                      results={result}
+                      accentId={tableAccentChoice === 'inherit' ? undefined : tableAccentChoice}
+                    />
                   </div>
                 )}
             </div>

@@ -18,6 +18,10 @@ import {
   YAxis,
 } from 'recharts'
 import { columnHeaderLabel } from '@/lib/columnLabels'
+import { chartHexForAccent, seriesStrokeFills } from '@/lib/chartColors'
+import { buildQueryChartSpec, effectiveCartesianKind } from '@/lib/chartSpec'
+import { useTableAccentId } from '@/hooks/useTableAccent'
+import type { TableAccentId } from '@/lib/tableAccent'
 import type { WidgetChartKind } from '@/lib/widgetDisplay'
 import type { QueryResultData } from '@/types'
 
@@ -32,74 +36,18 @@ const AXIS = '#64748b'
 const GRID = '#334155'
 const PALETTE = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4']
 
-function numericRatio(rows: Record<string, unknown>[], col: string, limit = 20): number {
-  const slice = rows.slice(0, limit)
-  let ok = 0
-  let tot = 0
-  for (const r of slice) {
-    const v = r[col]
-    if (v === null || v === undefined || v === '') continue
-    tot++
-    if (typeof v === 'number' && !Number.isNaN(v)) ok++
-    else if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) ok++
-  }
-  return tot === 0 ? 0 : ok / tot
-}
-
-type ChartSpec = {
-  chartData: Record<string, string | number>[]
-  xKey: string
-  yKeys: string[]
-  preferLine: boolean
-}
-
-function buildChartSpec(data: QueryResultData): ChartSpec | null {
-  const { rows, column_names } = data
-  if (!rows.length || !column_names.length) return null
-
-  const numericCols = column_names.filter((c) => numericRatio(rows, c) >= 0.65)
-  const catCols = column_names.filter((c) => !numericCols.includes(c))
-
-  let xKey = catCols[0] ?? column_names[0]
-  let yKeys = numericCols.filter((k) => k !== xKey)
-
-  if (yKeys.length === 0 && numericCols.length >= 2) {
-    xKey = numericCols[0]
-    yKeys = numericCols.slice(1, 4)
-  } else if (yKeys.length === 0 && numericCols.length === 1) {
-    const y = numericCols[0]
-    const chartData = rows.map((r, i) => ({
-      __x: `Fila ${i + 1}`,
-      [y]: Number(r[y]) || 0,
-    }))
-    return { chartData, xKey: '__x', yKeys: [y], preferLine: rows.length > 8 }
-  }
-
-  if (yKeys.length === 0) return null
-
-  yKeys = yKeys.slice(0, 4)
-
-  const chartData = rows.map((r) => {
-    const out: Record<string, string | number> = {}
-    const xv = r[xKey]
-    out[xKey] = xv === null || xv === undefined ? '—' : String(xv)
-    for (const y of yKeys) {
-      const raw = r[y]
-      const n = typeof raw === 'number' ? raw : Number(raw)
-      out[y] = Number.isFinite(n) ? n : 0
-    }
-    return out
-  })
-
-  const preferLine = rows.length > 6 && numericRatio(rows, xKey, 10) >= 0.5
-
-  return { chartData, xKey, yKeys, preferLine }
-}
-
 type Props = {
   data: QueryResultData
-  /** Si no se pasa o es `auto`, se elige barras/líneas con la heurística anterior. */
   chartKind?: WidgetChartKind
+  /** Acento global o del widget; si no se pasa, se lee de Configuración. */
+  accentId?: TableAccentId | null
+  /** Colores por columna numérica (serie) cuando hay 2+ métricas. Hex #rrggbb. */
+  seriesColors?: Record<string, string>
+  /**
+   * Solo barras con una métrica y más de 2 categorías: color por etiqueta del eje X.
+   * Clave = texto de categoría tal como en los datos.
+   */
+  categoryColors?: Record<string, string>
 }
 
 function ResultsChartTooltip({
@@ -130,13 +78,18 @@ function ResultsChartTooltip({
   )
 }
 
-function effectiveCartesianKind(kind: WidgetChartKind | undefined, preferLine: boolean): 'bar' | 'line' | 'area' {
-  if (kind === 'bar' || kind === 'line' || kind === 'area') return kind
-  return preferLine ? 'line' : 'bar'
-}
+export function QueryResultsChart({
+  data,
+  chartKind = 'auto',
+  accentId: accentProp,
+  seriesColors,
+  categoryColors,
+}: Props) {
+  const globalAccent = useTableAccentId()
+  const resolvedAccent = accentProp != null ? accentProp : globalAccent
+  const primaryHex = chartHexForAccent(resolvedAccent)
 
-export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
-  const spec = buildChartSpec(data)
+  const spec = buildQueryChartSpec(data)
 
   if (!data.rows.length) {
     return (
@@ -179,7 +132,10 @@ export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
               label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
             >
               {filtered.map((row, i) => (
-                <Cell key={`${row.name}-${i}`} fill={PALETTE[i % PALETTE.length]} />
+                <Cell
+                  key={`${row.name}-${i}`}
+                  fill={i === 0 ? primaryHex : PALETTE[(i % (PALETTE.length - 1)) + 1]}
+                />
               ))}
             </Pie>
             <Tooltip
@@ -209,6 +165,17 @@ export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
 
   const cartKind = effectiveCartesianKind(chartKind, preferLine)
   const ChartComponent = cartKind === 'bar' ? BarChart : cartKind === 'area' ? AreaChart : LineChart
+
+  const fills = seriesStrokeFills(primaryHex, yKeys, seriesColors)
+  const singleMetric = yKeys.length === 1
+  const multiCategories = chartData.length > 2
+  const y0 = yKeys[0]
+  const useCategoryFill =
+    singleMetric &&
+    cartKind === 'bar' &&
+    multiCategories &&
+    categoryColors &&
+    Object.keys(categoryColors).length > 0
 
   return (
     <div className="h-[320px] w-full min-w-0 pt-2">
@@ -241,15 +208,26 @@ export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
           />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
           {cartKind === 'bar' &&
-            yKeys.map((k, i) => (
-              <Bar
-                key={k}
-                dataKey={k}
-                name={columnHeaderLabel(k, labelsEs)}
-                fill={PALETTE[i % PALETTE.length]}
-                radius={[4, 4, 0, 0]}
-              />
-            ))}
+            yKeys.map((k, i) => {
+              const fill = fills[i] ?? primaryHex
+              return (
+                <Bar
+                  key={k}
+                  dataKey={k}
+                  name={columnHeaderLabel(k, labelsEs)}
+                  fill={useCategoryFill && k === y0 ? primaryHex : fill}
+                  radius={[4, 4, 0, 0]}
+                >
+                  {useCategoryFill && k === y0
+                    ? chartData.map((entry, idx) => {
+                        const label = String(entry[xKey] ?? '')
+                        const c = categoryColors![label] ?? primaryHex
+                        return <Cell key={`c-${idx}`} fill={c} />
+                      })
+                    : null}
+                </Bar>
+              )
+            })}
           {cartKind === 'line' &&
             yKeys.map((k, i) => (
               <Line
@@ -257,24 +235,27 @@ export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
                 type="monotone"
                 dataKey={k}
                 name={columnHeaderLabel(k, labelsEs)}
-                stroke={PALETTE[i % PALETTE.length]}
+                stroke={fills[i] ?? primaryHex}
                 strokeWidth={2}
                 dot={{ r: 3 }}
               />
             ))}
           {cartKind === 'area' &&
-            yKeys.map((k, i) => (
-              <Area
-                key={k}
-                type="monotone"
-                dataKey={k}
-                name={columnHeaderLabel(k, labelsEs)}
-                stroke={PALETTE[i % PALETTE.length]}
-                fill={PALETTE[i % PALETTE.length]}
-                fillOpacity={0.35}
-                strokeWidth={2}
-              />
-            ))}
+            yKeys.map((k, i) => {
+              const c = fills[i] ?? primaryHex
+              return (
+                <Area
+                  key={k}
+                  type="monotone"
+                  dataKey={k}
+                  name={columnHeaderLabel(k, labelsEs)}
+                  stroke={c}
+                  fill={c}
+                  fillOpacity={0.35}
+                  strokeWidth={2}
+                />
+              )
+            })}
         </ChartComponent>
       </ResponsiveContainer>
     </div>

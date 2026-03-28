@@ -20,6 +20,15 @@ import {
   type WidgetChartKind,
   type WidgetView,
 } from '@/lib/widgetDisplay'
+import { parseWidgetTableAccent, TABLE_ACCENT_OPTIONS, type TableAccentId } from '@/lib/tableAccent'
+import { buildQueryChartSpec, effectiveCartesianKind } from '@/lib/chartSpec'
+import {
+  chartHexForAccent,
+  parseHexColorMap,
+  seriesStrokeFills,
+} from '@/lib/chartColors'
+import { columnHeaderLabel } from '@/lib/columnLabels'
+import { useTableAccentId } from '@/hooks/useTableAccent'
 import { cn } from '@/lib/utils'
 import { getApiErrorMessage } from '@/lib/apiError'
 import type { ApiDashboardWidget, QueryResultData } from '@/types'
@@ -36,6 +45,7 @@ type Props = {
 }
 
 export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetActions }: Props) {
+  const globalTableAccent = useTableAccentId()
   const cfg = parseWidgetDisplayConfig(widget.widget_config)
   const [tab, setTab] = useState<WidgetView>(cfg.defaultView)
   const [data, setData] = useState<QueryResultData | null>(null)
@@ -47,11 +57,24 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
   )
   const persistViewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistChartTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistTableAccentTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistSeriesColorsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistCategoryColorsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [widgetTableAccent, setWidgetTableAccent] = useState<TableAccentId | undefined>(() =>
+    parseWidgetTableAccent(widget.widget_config as Record<string, unknown>)
+  )
+  const [chartSeriesColors, setChartSeriesColors] = useState<Record<string, string>>({})
+  const [chartCategoryColors, setChartCategoryColors] = useState<Record<string, string>>({})
 
   const configSig = JSON.stringify(widget.widget_config)
   useEffect(() => {
+    const wc = widget.widget_config as Record<string, unknown>
     setTab(parseWidgetDisplayConfig(widget.widget_config).defaultView)
-    setChartKind(parseChartKind(widget.widget_config as Record<string, unknown>))
+    setChartKind(parseChartKind(wc))
+    setWidgetTableAccent(parseWidgetTableAccent(wc))
+    setChartSeriesColors(parseHexColorMap(wc.chart_series_colors))
+    setChartCategoryColors(parseHexColorMap(wc.chart_category_colors))
   }, [widget.id, configSig])
 
   const load = useCallback(async () => {
@@ -106,6 +129,53 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
     [cfg.showChart, widget.id]
   )
 
+  const persistWidgetTableAccent = useCallback(
+    (choice: TableAccentId | '__global__') => {
+      if (!cfg.showTable) return
+      const next = choice === '__global__' ? undefined : choice
+      setWidgetTableAccent(next)
+      if (persistTableAccentTimer.current) clearTimeout(persistTableAccentTimer.current)
+      persistTableAccentTimer.current = setTimeout(() => {
+        void apiClient
+          .patchDashboardWidget(DASH_ALIAS, widget.id, {
+            widget_config: { table_accent: choice === '__global__' ? null : choice },
+          })
+          .catch(() => {
+            /* silencioso */
+          })
+      }, 400)
+    },
+    [cfg.showTable, widget.id]
+  )
+
+  const schedulePersistSeriesColors = useCallback(
+    (map: Record<string, string>) => {
+      if (persistSeriesColorsTimer.current) clearTimeout(persistSeriesColorsTimer.current)
+      persistSeriesColorsTimer.current = setTimeout(() => {
+        void apiClient
+          .patchDashboardWidget(DASH_ALIAS, widget.id, {
+            widget_config: { chart_series_colors: map },
+          })
+          .catch(() => {})
+      }, 400)
+    },
+    [widget.id]
+  )
+
+  const schedulePersistCategoryColors = useCallback(
+    (map: Record<string, string>) => {
+      if (persistCategoryColorsTimer.current) clearTimeout(persistCategoryColorsTimer.current)
+      persistCategoryColorsTimer.current = setTimeout(() => {
+        void apiClient
+          .patchDashboardWidget(DASH_ALIAS, widget.id, {
+            widget_config: { chart_category_colors: map },
+          })
+          .catch(() => {})
+      }, 400)
+    },
+    [widget.id]
+  )
+
   const handleTab = (next: WidgetView, canSwitchTabs: boolean) => {
     setTab(next)
     persistDefaultView(next, canSwitchTabs)
@@ -136,7 +206,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
     showBothChartTable || Boolean(singleRow && (cfg.showChart || cfg.showTable))
 
   const showDisplayMenu =
-    Boolean(data && !loading && !error) && (needsTabBar || cfg.showChart)
+    Boolean(data && !loading && !error) && (needsTabBar || cfg.showChart || cfg.showTable)
 
   useEffect(() => {
     if (!data) return
@@ -144,6 +214,29 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
       setTab(cfg.showChart ? 'chart' : 'table')
     }
   }, [data, tab, cfg.showChart, cfg.showTable])
+
+  const chartColorMeta = (() => {
+    if (!data) return null
+    const spec = buildQueryChartSpec(data)
+    if (!spec) return null
+    const cart = effectiveCartesianKind(chartKind, spec.preferLine)
+    return { spec, cartKind: cart, yKeys: spec.yKeys }
+  })()
+
+  const accentForChart =
+    widgetTableAccent !== undefined ? widgetTableAccent : globalTableAccent
+  const chartPrimaryHex = chartHexForAccent(accentForChart)
+
+  const categoryLabelsForColors =
+    chartColorMeta &&
+    chartColorMeta.yKeys.length === 1 &&
+    chartColorMeta.cartKind === 'bar' &&
+    chartColorMeta.spec.chartData.length > 2
+      ? [...new Set(chartColorMeta.spec.chartData.map((r) => String(r[chartColorMeta.spec.xKey] ?? '')))].slice(
+          0,
+          20
+        )
+      : []
 
   return (
     <article
@@ -164,7 +257,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                 <button
                   type="button"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 dark:text-gray-400 dark:hover:bg-slate-700 dark:hover:text-white"
-                  aria-label="Vista y tipo de gráfica"
+                  aria-label="Vista, gráfica y color de tabla"
                 >
                   <SlidersHorizontal className="h-4 w-4" aria-hidden />
                 </button>
@@ -272,6 +365,153 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                       </DropdownMenu.RadioGroup>
                     </>
                   )}
+                  {cfg.showTable && (
+                    <>
+                      {(needsTabBar || cfg.showChart) && (
+                        <DropdownMenu.Separator className="my-1 h-px bg-gray-100 dark:bg-slate-700" />
+                      )}
+                      <DropdownMenu.Label className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Color de la tabla
+                      </DropdownMenu.Label>
+                      <DropdownMenu.RadioGroup
+                        value={widgetTableAccent ?? '__global__'}
+                        onValueChange={(v) => persistWidgetTableAccent(v as TableAccentId | '__global__')}
+                      >
+                        <DropdownMenu.RadioItem
+                          value="__global__"
+                          className={cn(
+                            'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
+                            'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                            'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                          )}
+                        >
+                          <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                            <DropdownMenu.ItemIndicator className="inline-flex">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
+                            </DropdownMenu.ItemIndicator>
+                          </span>
+                          Predeterminado (configuración)
+                        </DropdownMenu.RadioItem>
+                        {TABLE_ACCENT_OPTIONS.map((opt) => (
+                          <DropdownMenu.RadioItem
+                            key={opt.id}
+                            value={opt.id}
+                            className={cn(
+                              'relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 pl-7 text-sm text-gray-900 outline-none',
+                              'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                              'data-[highlighted]:bg-slate-50 data-[state=checked]:font-medium dark:text-white dark:data-[highlighted]:bg-slate-800'
+                            )}
+                          >
+                            <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                              <DropdownMenu.ItemIndicator className="inline-flex">
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-600 dark:bg-slate-400" />
+                              </DropdownMenu.ItemIndicator>
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/15', opt.swatch)}
+                                aria-hidden
+                              />
+                              {opt.label}
+                            </span>
+                          </DropdownMenu.RadioItem>
+                        ))}
+                      </DropdownMenu.RadioGroup>
+                    </>
+                  )}
+                  {cfg.showChart &&
+                    chartKind !== 'pie' &&
+                    chartColorMeta &&
+                    chartColorMeta.yKeys.length > 2 && (
+                      <>
+                        <DropdownMenu.Separator className="my-1 h-px bg-gray-100 dark:bg-slate-700" />
+                        <DropdownMenu.Label className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Color por métrica
+                        </DropdownMenu.Label>
+                        <p className="px-2 pb-1 text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                          Más de dos columnas numéricas: un color por serie. La primera toma el acento del widget; el
+                          resto tiene sugerencias editables aquí.
+                        </p>
+                        <div
+                          className="max-h-44 overflow-y-auto px-1 py-1"
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          {chartColorMeta.yKeys.map((k, i) => {
+                            const def = seriesStrokeFills(
+                              chartPrimaryHex,
+                              chartColorMeta.yKeys,
+                              chartSeriesColors
+                            )[i]
+                            const val = chartSeriesColors[k] ?? def
+                            return (
+                              <div key={k} className="flex items-center gap-2 px-1 py-1">
+                                <span
+                                  className="min-w-0 flex-1 truncate text-xs text-gray-800 dark:text-gray-200"
+                                  title={columnHeaderLabel(k, data?.column_labels_es)}
+                                >
+                                  {columnHeaderLabel(k, data?.column_labels_es)}
+                                </span>
+                                <input
+                                  type="color"
+                                  value={val}
+                                  onChange={(e) => {
+                                    const hex = e.target.value
+                                    const next = { ...chartSeriesColors, [k]: hex }
+                                    setChartSeriesColors(next)
+                                    schedulePersistSeriesColors(next)
+                                  }}
+                                  className="h-8 w-10 shrink-0 cursor-pointer overflow-hidden rounded border border-gray-300 bg-white p-0 dark:border-slate-600"
+                                  aria-label={`Color de la serie ${k}`}
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  {cfg.showChart &&
+                    chartKind !== 'pie' &&
+                    categoryLabelsForColors.length > 0 && (
+                      <>
+                        <DropdownMenu.Separator className="my-1 h-px bg-gray-100 dark:bg-slate-700" />
+                        <DropdownMenu.Label className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Color por categoría (eje X)
+                        </DropdownMenu.Label>
+                        <p className="px-2 pb-1 text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                          Solo barras con una métrica y más de dos categorías. Cada barra puede tener su color.
+                        </p>
+                        <div
+                          className="max-h-44 overflow-y-auto px-1 py-1"
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          {categoryLabelsForColors.map((label) => {
+                            const val = chartCategoryColors[label] ?? chartPrimaryHex
+                            return (
+                              <div key={label || '__empty'} className="flex items-center gap-2 px-1 py-1">
+                                <span
+                                  className="min-w-0 flex-1 truncate text-xs text-gray-800 dark:text-gray-200"
+                                  title={label || '—'}
+                                >
+                                  {label || '—'}
+                                </span>
+                                <input
+                                  type="color"
+                                  value={val}
+                                  onChange={(e) => {
+                                    const hex = e.target.value
+                                    const next = { ...chartCategoryColors, [label]: hex }
+                                    setChartCategoryColors(next)
+                                    schedulePersistCategoryColors(next)
+                                  }}
+                                  className="h-8 w-10 shrink-0 cursor-pointer overflow-hidden rounded border border-gray-300 bg-white p-0 dark:border-slate-600"
+                                  aria-label={`Color categoría ${label || 'vacía'}`}
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
@@ -313,7 +553,13 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
               (!needsTabBar ? tab === 'chart' || !showBothChartTable : tab === 'chart') &&
               data.column_names.length > 0 && (
                 <div className="h-[260px] w-full min-w-0">
-                  <QueryResultsChart data={data} chartKind={chartKind} />
+                  <QueryResultsChart
+                    data={data}
+                    chartKind={chartKind}
+                    accentId={widgetTableAccent}
+                    seriesColors={chartSeriesColors}
+                    categoryColors={chartCategoryColors}
+                  />
                 </div>
               )}
             {singleRow && tab === 'value' && <SingleQueryResultValuePanel results={data} />}
@@ -330,7 +576,7 @@ export function DashboardWidgetCard({ widget, onRemoved, className, showWidgetAc
                       CSV
                     </button>
                   </div>
-                  <DataResultTable results={data} />
+                  <DataResultTable results={data} accentId={widgetTableAccent} />
                 </div>
               )}
             {data.column_names.length === 0 && (

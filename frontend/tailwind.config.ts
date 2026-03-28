@@ -6,6 +6,8 @@ const config: Config = {
   content: [
     './app/**/*.{js,ts,jsx,tsx}',
     './app/components/**/*.{js,ts,jsx,tsx}',
+    /** Incluye utilidades usadas desde strings (p. ej. `tableAccent.ts` para colores de tabla). */
+    './lib/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {

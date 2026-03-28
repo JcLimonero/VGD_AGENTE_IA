@@ -1,6 +1,7 @@
 /** Configuración persistida en `widget_config` (JSON) para cada widget del dashboard. */
 
 import { fixSpanishSemicolonEnyeTypo } from '@/lib/spanishDisplay'
+import { parseWidgetTableAccent, type TableAccentId } from '@/lib/tableAccent'
 
 export type WidgetView = 'chart' | 'table' | 'value'
 
@@ -31,6 +32,8 @@ export function parseWidgetDisplayConfig(config: Record<string, unknown>): {
   defaultView: WidgetView
   title: string
   chartKind: WidgetChartKind
+  /** Si está definido, la tabla del widget usa este acento; si no, el de Configuración. */
+  tableAccent: TableAccentId | undefined
 } {
   const rawTitle =
     typeof config.title === 'string' && config.title.trim() ? config.title.trim() : 'Consulta'
@@ -57,5 +60,12 @@ export function parseWidgetDisplayConfig(config: Record<string, unknown>): {
   if (defaultView === 'table' && !showTable) defaultView = showChart ? 'chart' : 'table'
   if (defaultView === 'value' && !showChart && !showTable) defaultView = 'chart'
 
-  return { showChart, showTable, defaultView, title, chartKind: parseChartKind(config) }
+  return {
+    showChart,
+    showTable,
+    defaultView,
+    title,
+    chartKind: parseChartKind(config),
+    tableAccent: parseWidgetTableAccent(config),
+  }
 }

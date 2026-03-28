@@ -6,6 +6,12 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { applyTheme, readStoredThemeChoice, type ThemeChoice } from '@/lib/theme'
+import {
+  persistTableAccent,
+  readStoredTableAccent,
+  TABLE_ACCENT_OPTIONS,
+  type TableAccentId,
+} from '@/lib/tableAccent'
 
 function apiBaseSummary(): string {
   const explicit = (process.env.NEXT_PUBLIC_API_BASE_URL || '').trim()
@@ -24,6 +30,7 @@ export default function SettingsPage() {
   const { user, isAuthenticated, logout } = useAuth()
   const [theme, setTheme] = useState<ThemeChoice>('system')
   const [themeReady, setThemeReady] = useState(false)
+  const [tableAccent, setTableAccent] = useState<TableAccentId>('blue')
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -31,6 +38,7 @@ export default function SettingsPage() {
       return
     }
     setTheme(readStoredThemeChoice())
+    setTableAccent(readStoredTableAccent())
     setThemeReady(true)
   }, [isAuthenticated, router])
 
@@ -39,6 +47,11 @@ export default function SettingsPage() {
   const handleTheme = (choice: ThemeChoice) => {
     applyTheme(choice)
     setTheme(choice)
+  }
+
+  const handleTableAccent = (id: TableAccentId) => {
+    persistTableAccent(id)
+    setTableAccent(id)
   }
 
   return (
@@ -123,6 +136,44 @@ export default function SettingsPage() {
                   <span className="mt-0.5 block text-sm text-gray-600 dark:text-gray-400">{opt.hint}</span>
                 </span>
               </label>
+            ))}
+          </div>
+        </section>
+
+        {/* Color de tablas */}
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-600 dark:bg-slate-800">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Color de las tablas (predeterminado)</h2>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            Acento por defecto para tablas en chat, ejecución de consultas y widgets que usen
+            &quot;Predeterminado (configuración)&quot;. Cada widget del dashboard puede fijar su propio color
+            en el menú del icono de ajustes del widget. Se guarda en este navegador.
+          </p>
+          <div
+            className="mt-4 flex flex-wrap gap-3"
+            role="radiogroup"
+            aria-label="Color de acento para tablas de datos"
+          >
+            {TABLE_ACCENT_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={themeReady && tableAccent === opt.id}
+                onClick={() => handleTableAccent(opt.id)}
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-3 transition ${
+                  tableAccent === opt.id
+                    ? 'border-gray-900 ring-2 ring-gray-900 ring-offset-2 dark:border-white dark:ring-white dark:ring-offset-slate-900'
+                    : 'border-gray-200 hover:border-gray-400 dark:border-slate-600 dark:hover:border-slate-400'
+                }`}
+              >
+                <span
+                  className={`h-10 w-10 rounded-full shadow-inner ring-1 ring-black/10 ${opt.swatch}`}
+                  aria-hidden
+                />
+                <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
+                  {opt.label}
+                </span>
+              </button>
             ))}
           </div>
         </section>
