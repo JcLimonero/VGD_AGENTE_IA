@@ -161,7 +161,13 @@ class APIClient {
   async patchDashboardWidget(
     dashboardId: string,
     widgetId: string,
-    body: { widget_config: Record<string, unknown> }
+    body: {
+      widget_config?: Record<string, unknown>
+      pos_x?: number
+      pos_y?: number
+      width?: number
+      height?: number
+    }
   ) {
     const response = await this.client.patch(`/api/dashboards/${dashboardId}/widgets/${widgetId}`, body)
     return response.data

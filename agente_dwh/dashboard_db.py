@@ -176,39 +176,85 @@ def db_delete_dashboard_widget(dashboard_id: int, widget_id: int, user_id: int) 
     return n > 0
 
 
-def db_patch_dashboard_widget(
-    dashboard_id: int, widget_id: int, user_id: int, merge_config: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
-    """Fusiona claves en widget_config (JSONB ||)."""
-    if not merge_config:
-        with platform_connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT w.id, w.dashboard_id, w.saved_query_id, w.pos_x, w.pos_y, w.width, w.height,
-                           w.display_order, w.widget_config, w.created_at
-                    FROM dashboard_widgets w
-                    JOIN dashboards d ON d.id = w.dashboard_id
-                    WHERE w.id = %s AND w.dashboard_id = %s AND d.user_id = %s
-                    """,
-                    (widget_id, dashboard_id, user_id),
-                )
-                row = cur.fetchone()
-        return _widget_row_to_api(row) if row else None
+def _clamp_widget_geometry(
+    pos_x: int,
+    pos_y: int,
+    width: int,
+    height: int,
+    layout_cols: int,
+    *,
+    max_height: int = 32,
+) -> tuple[int, int, int, int]:
+    lc = max(1, min(int(layout_cols), 24))
+    w = max(1, min(int(width), lc))
+    px = max(0, min(int(pos_x), lc - w))
+    h = max(1, min(int(height), max_height))
+    py = max(0, int(pos_y))
+    return px, py, w, h
 
+
+def db_patch_dashboard_widget(
+    dashboard_id: int,
+    widget_id: int,
+    user_id: int,
+    merge_config: Optional[Dict[str, Any]] = None,
+    pos_x: Optional[int] = None,
+    pos_y: Optional[int] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Actualiza widget_config (fusión JSONB ||) y/o posición/tamaño en la cuadrícula.
+    Los campos de geometría omitidos conservan el valor actual.
+    """
     with platform_connect() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                UPDATE dashboard_widgets w
-                SET widget_config = COALESCE(w.widget_config, '{}'::jsonb) || %s::jsonb
-                FROM dashboards d
-                WHERE w.id = %s AND w.dashboard_id = %s AND w.dashboard_id = d.id AND d.user_id = %s
-                RETURNING w.id, w.dashboard_id, w.saved_query_id, w.pos_x, w.pos_y, w.width, w.height,
-                          w.display_order, w.widget_config, w.created_at
+                SELECT w.pos_x, w.pos_y, w.width, w.height, w.widget_config, d.layout_cols
+                FROM dashboard_widgets w
+                JOIN dashboards d ON d.id = w.dashboard_id
+                WHERE w.id = %s AND w.dashboard_id = %s AND d.user_id = %s
                 """,
-                (Json(merge_config), widget_id, dashboard_id, user_id),
+                (widget_id, dashboard_id, user_id),
             )
+            cur_row = cur.fetchone()
+            if not cur_row:
+                return None
+
+            lc = int(cur_row["layout_cols"] or 12)
+            nx = int(cur_row["pos_x"]) if pos_x is None else int(pos_x)
+            ny = int(cur_row["pos_y"]) if pos_y is None else int(pos_y)
+            nw = int(cur_row["width"]) if width is None else int(width)
+            nh = int(cur_row["height"]) if height is None else int(height)
+            nx, ny, nw, nh = _clamp_widget_geometry(nx, ny, nw, nh, lc)
+
+            do_merge = bool(merge_config)
+            if do_merge:
+                cur.execute(
+                    """
+                    UPDATE dashboard_widgets w
+                    SET pos_x = %s, pos_y = %s, width = %s, height = %s,
+                        widget_config = COALESCE(w.widget_config, '{}'::jsonb) || %s::jsonb
+                    FROM dashboards d
+                    WHERE w.id = %s AND w.dashboard_id = %s AND w.dashboard_id = d.id AND d.user_id = %s
+                    RETURNING w.id, w.dashboard_id, w.saved_query_id, w.pos_x, w.pos_y, w.width, w.height,
+                              w.display_order, w.widget_config, w.created_at
+                    """,
+                    (nx, ny, nw, nh, Json(merge_config), widget_id, dashboard_id, user_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE dashboard_widgets w
+                    SET pos_x = %s, pos_y = %s, width = %s, height = %s
+                    FROM dashboards d
+                    WHERE w.id = %s AND w.dashboard_id = %s AND w.dashboard_id = d.id AND d.user_id = %s
+                    RETURNING w.id, w.dashboard_id, w.saved_query_id, w.pos_x, w.pos_y, w.width, w.height,
+                              w.display_order, w.widget_config, w.created_at
+                    """,
+                    (nx, ny, nw, nh, widget_id, dashboard_id, user_id),
+                )
             row = cur.fetchone()
         conn.commit()
     return _widget_row_to_api(row) if row else None

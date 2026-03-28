@@ -106,8 +106,13 @@ class WidgetCreate(BaseModel):
 
 
 class DashboardWidgetPatch(BaseModel):
-    """Fusión parcial en `widget_config` (JSONB || en servidor)."""
-    widget_config: Dict[str, Any]
+    """Fusión parcial en `widget_config` y/o geometría en la cuadrícula (segmentos)."""
+
+    widget_config: Optional[Dict[str, Any]] = None
+    pos_x: Optional[int] = None
+    pos_y: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 class ChatMessage(BaseModel):
     message: str
@@ -780,17 +785,31 @@ async def patch_dashboard_widget(
     body: DashboardWidgetPatch,
     current_user: dict = Depends(get_current_user),
 ):
-    """Fusiona campos en widget_config (p. ej. default_view, show_chart)."""
+    """Fusiona widget_config y/o actualiza pos_x, pos_y, width, height (cuadrícula del dashboard)."""
     uid = _api_user_int_id(current_user)
     try:
         did = resolve_dashboard_id(dashboard_id, uid)
         wid = int(widget_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Dashboard o widget no encontrado")
-    if not body.widget_config:
-        raise HTTPException(status_code=400, detail="widget_config no puede estar vacío")
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="Nada que actualizar")
+    if "widget_config" in patch and patch["widget_config"] is not None and not patch["widget_config"]:
+        patch.pop("widget_config", None)
+    if not patch:
+        raise HTTPException(status_code=400, detail="Nada que actualizar")
     try:
-        updated = db_patch_dashboard_widget(did, wid, uid, body.widget_config)
+        updated = db_patch_dashboard_widget(
+            did,
+            wid,
+            uid,
+            merge_config=patch.get("widget_config"),
+            pos_x=patch.get("pos_x"),
+            pos_y=patch.get("pos_y"),
+            width=patch.get("width"),
+            height=patch.get("height"),
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except pg_errors.Error as e:

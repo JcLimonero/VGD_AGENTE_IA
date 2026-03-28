@@ -15,9 +15,11 @@ const DASH_ALIAS = 'default'
 type Props = {
   widget: ApiDashboardWidget
   onRemoved: () => void
+  /** p. ej. `h-full min-h-0` dentro de una celda de cuadrícula. */
+  className?: string
 }
 
-export function DashboardWidgetCard({ widget, onRemoved }: Props) {
+export function DashboardWidgetCard({ widget, onRemoved, className }: Props) {
   const cfg = parseWidgetDisplayConfig(widget.widget_config)
   const [tab, setTab] = useState<WidgetView>(cfg.defaultView)
   const [data, setData] = useState<QueryResultData | null>(null)
@@ -89,7 +91,10 @@ export function DashboardWidgetCard({ widget, onRemoved }: Props) {
 
   return (
     <article
-      className="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-600 dark:bg-slate-800"
+      className={cn(
+        'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-600 dark:bg-slate-800',
+        className
+      )}
       data-widget-id={widget.id}
     >
       <header className="flex items-start justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-slate-700">
