@@ -1,18 +1,24 @@
 'use client'
 
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import { columnHeaderLabel } from '@/lib/columnLabels'
+import type { WidgetChartKind } from '@/lib/widgetDisplay'
 import type { QueryResultData } from '@/types'
 
 const tooltipStyle = {
@@ -24,7 +30,7 @@ const tooltipStyle = {
 
 const AXIS = '#64748b'
 const GRID = '#334155'
-const PALETTE = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b']
+const PALETTE = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4']
 
 function numericRatio(rows: Record<string, unknown>[], col: string, limit = 20): number {
   const slice = rows.slice(0, limit)
@@ -92,6 +98,8 @@ function buildChartSpec(data: QueryResultData): ChartSpec | null {
 
 type Props = {
   data: QueryResultData
+  /** Si no se pasa o es `auto`, se elige barras/líneas con la heurística anterior. */
+  chartKind?: WidgetChartKind
 }
 
 function ResultsChartTooltip({
@@ -122,7 +130,12 @@ function ResultsChartTooltip({
   )
 }
 
-export function QueryResultsChart({ data }: Props) {
+function effectiveCartesianKind(kind: WidgetChartKind | undefined, preferLine: boolean): 'bar' | 'line' | 'area' {
+  if (kind === 'bar' || kind === 'line' || kind === 'area') return kind
+  return preferLine ? 'line' : 'bar'
+}
+
+export function QueryResultsChart({ data, chartKind = 'auto' }: Props) {
   const spec = buildChartSpec(data)
 
   if (!data.rows.length) {
@@ -142,8 +155,60 @@ export function QueryResultsChart({ data }: Props) {
   }
 
   const { chartData, xKey, yKeys, preferLine } = spec
-  const ChartComponent = preferLine ? LineChart : BarChart
   const labelsEs = data.column_labels_es
+  const usePie = chartKind === 'pie'
+
+  if (usePie) {
+    const valueKey = yKeys[0]
+    const pieRows = chartData.map((row, i) => ({
+      name: String(row[xKey] ?? `Ítem ${i + 1}`),
+      value: Number(row[valueKey]) || 0,
+    }))
+    const filtered = pieRows.filter((r) => r.value !== 0 || pieRows.length <= 12)
+    return (
+      <div className="h-[320px] w-full min-w-0 pt-2">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+            <Pie
+              data={filtered}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={108}
+              label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
+            >
+              {filtered.map((row, i) => (
+                <Cell key={`${row.name}-${i}`} fill={PALETTE[i % PALETTE.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null
+                const p = payload[0]
+                const nm = typeof p.name === 'string' ? p.name : String(p.name ?? '')
+                return (
+                  <div style={tooltipStyle}>
+                    <p style={{ color: '#e2e8f0', margin: 0 }}>{nm}</p>
+                    <p style={{ color: '#cbd5e1', margin: '4px 0 0', fontSize: 12 }}>
+                      {columnHeaderLabel(valueKey, labelsEs)}: {String(p.value ?? '')}
+                    </p>
+                  </div>
+                )
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
+          </PieChart>
+        </ResponsiveContainer>
+        <p className="mt-1 text-center text-[10px] text-gray-500 dark:text-gray-400">
+          Serie: {columnHeaderLabel(valueKey, labelsEs)} · categoría: {columnHeaderLabel(xKey, labelsEs)}
+        </p>
+      </div>
+    )
+  }
+
+  const cartKind = effectiveCartesianKind(chartKind, preferLine)
+  const ChartComponent = cartKind === 'bar' ? BarChart : cartKind === 'area' ? AreaChart : LineChart
 
   return (
     <div className="h-[320px] w-full min-w-0 pt-2">
@@ -175,27 +240,41 @@ export function QueryResultsChart({ data }: Props) {
             cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
           />
           <Legend wrapperStyle={{ fontSize: '12px' }} />
-          {preferLine
-            ? yKeys.map((k, i) => (
-                <Line
-                  key={k}
-                  type="monotone"
-                  dataKey={k}
-                  name={columnHeaderLabel(k, labelsEs)}
-                  stroke={PALETTE[i % PALETTE.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                />
-              ))
-            : yKeys.map((k, i) => (
-                <Bar
-                  key={k}
-                  dataKey={k}
-                  name={columnHeaderLabel(k, labelsEs)}
-                  fill={PALETTE[i % PALETTE.length]}
-                  radius={[4, 4, 0, 0]}
-                />
-              ))}
+          {cartKind === 'bar' &&
+            yKeys.map((k, i) => (
+              <Bar
+                key={k}
+                dataKey={k}
+                name={columnHeaderLabel(k, labelsEs)}
+                fill={PALETTE[i % PALETTE.length]}
+                radius={[4, 4, 0, 0]}
+              />
+            ))}
+          {cartKind === 'line' &&
+            yKeys.map((k, i) => (
+              <Line
+                key={k}
+                type="monotone"
+                dataKey={k}
+                name={columnHeaderLabel(k, labelsEs)}
+                stroke={PALETTE[i % PALETTE.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            ))}
+          {cartKind === 'area' &&
+            yKeys.map((k, i) => (
+              <Area
+                key={k}
+                type="monotone"
+                dataKey={k}
+                name={columnHeaderLabel(k, labelsEs)}
+                stroke={PALETTE[i % PALETTE.length]}
+                fill={PALETTE[i % PALETTE.length]}
+                fillOpacity={0.35}
+                strokeWidth={2}
+              />
+            ))}
         </ChartComponent>
       </ResponsiveContainer>
     </div>

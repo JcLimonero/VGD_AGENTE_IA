@@ -7,7 +7,12 @@ import { QueryResultsChart } from '@/components/QueryResultsChart'
 import { apiClient } from '@/services/api'
 import { downloadQueryResultsCsv } from '@/lib/csvExport'
 import { normalizeSavedQuery, queryResultFromExecuteApi } from '@/lib/savedQuery'
-import { parseWidgetDisplayConfig, type WidgetView } from '@/lib/widgetDisplay'
+import {
+  parseWidgetDisplayConfig,
+  WIDGET_CHART_OPTIONS,
+  type WidgetChartKind,
+  type WidgetView,
+} from '@/lib/widgetDisplay'
 import { cn } from '@/lib/utils'
 import type { Query, QueryResultData } from '@/types'
 
@@ -33,6 +38,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
   const [showTable, setShowTable] = useState(true)
   const [initialView, setInitialView] = useState<ViewTab>('chart')
   const [previewTab, setPreviewTab] = useState<WidgetView>('chart')
+  const [chartKind, setChartKind] = useState<WidgetChartKind>('auto')
 
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg, setAddMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
@@ -53,8 +59,9 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
       show_chart: showChart,
       show_table: showTable,
       default_view: resolvedDefaultView,
+      chart_kind: chartKind,
     }),
-    [queries, selectedId, showChart, showTable, resolvedDefaultView]
+    [queries, selectedId, showChart, showTable, resolvedDefaultView, chartKind]
   )
 
   const previewDisplay = parseWidgetDisplayConfig(previewConfig)
@@ -125,6 +132,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
           show_chart: showChart,
           show_table: showTable,
           default_view: resolvedDefaultView,
+          chart_kind: chartKind,
         },
       })
       setAddMsg({ type: 'ok', text: 'Widget guardado en tu dashboard por defecto.' })
@@ -180,6 +188,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                   setResult(null)
                   setRunError(null)
                   setAddMsg(null)
+                  setChartKind('auto')
                 }}
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
               >
@@ -234,6 +243,25 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
                   Tabla
                 </label>
               </div>
+              {showChart && (
+                <label className="flex max-w-md flex-col gap-1 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="font-medium">Tipo de gráfica</span>
+                  <select
+                    value={chartKind}
+                    onChange={(e) => setChartKind(e.target.value as WidgetChartKind)}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                  >
+                    {WIDGET_CHART_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                    La circular usa la primera métrica numérica y la categoría del eje X.
+                  </span>
+                </label>
+              )}
               {showChart && showTable && (
                 <div className="text-sm text-gray-700 dark:text-gray-300">
                   <span className="mr-3 font-medium">Vista inicial:</span>
@@ -317,7 +345,7 @@ export function SavedQueryWidgetPanel({ onWidgetAdded }: Props) {
               )}
               {previewDisplay.showChart && (previewTab === 'chart' || !previewShowTabs) && (
                 <div className="rounded-lg border border-gray-100 p-2 dark:border-slate-700">
-                  <QueryResultsChart data={result} />
+                  <QueryResultsChart data={result} chartKind={chartKind} />
                 </div>
               )}
               {previewDisplay.showTable && (previewTab === 'table' || !previewShowTabs) && (

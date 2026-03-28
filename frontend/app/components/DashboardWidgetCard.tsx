@@ -161,7 +161,7 @@ export function DashboardWidgetCard({ widget, onRemoved }: Props) {
 
             {cfg.showChart && (tab === 'chart' || !showTabs) && data.column_names.length > 0 && (
               <div className="h-[260px] w-full min-w-0">
-                <QueryResultsChart data={data} />
+                <QueryResultsChart data={data} chartKind={cfg.chartKind} />
               </div>
             )}
             {cfg.showTable && (tab === 'table' || !showTabs) && data.column_names.length > 0 && (
