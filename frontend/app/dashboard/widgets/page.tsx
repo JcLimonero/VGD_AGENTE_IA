@@ -1,21 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { DashboardWidgetsGrid } from '@/components/DashboardWidgetsGrid'
 import { SavedQueryWidgetPanel } from '@/components/SavedQueryWidgetPanel'
 
-export default function WidgetShowcasePage() {
+function ConfigureWidgetsPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user, isAuthenticated, logout } = useAuth()
   const [widgetsRefresh, setWidgetsRefresh] = useState(0)
+  const [organizeLayout, setOrganizeLayout] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated) router.push('/auth/login')
   }, [isAuthenticated, router])
+
+  useEffect(() => {
+    if (searchParams.get('organize') === '1') {
+      setOrganizeLayout(true)
+      router.replace('/dashboard/widgets', { scroll: false })
+    }
+  }, [searchParams, router])
 
   if (!isAuthenticated) return null
 
@@ -27,14 +36,13 @@ export default function WidgetShowcasePage() {
             <AppBreadcrumb
               items={[
                 { label: 'Dashboard', href: '/dashboard' },
-                { label: 'Widget showcase' },
+                { label: 'Configurar widgets' },
               ]}
             />
-            <h1 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-              📈 Widget showcase
-            </h1>
+            <h1 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">Configurar widgets</h1>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Añade widgets desde tus consultas guardadas y gestiona los que ya están en tu dashboard.
+              Añade widgets desde consultas guardadas, cambia vista y tipo de gráfica, y organiza la cuadrícula del
+              tablero.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -43,7 +51,7 @@ export default function WidgetShowcasePage() {
               href="/dashboard"
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
             >
-              Volver
+              Volver al tablero
             </Link>
             <button
               type="button"
@@ -61,8 +69,29 @@ export default function WidgetShowcasePage() {
 
       <main className="w-full min-w-0 space-y-8 pt-[30px]">
         <SavedQueryWidgetPanel onWidgetAdded={() => setWidgetsRefresh((n) => n + 1)} />
-        <DashboardWidgetsGrid refreshToken={widgetsRefresh} variant="showcase" />
+        <DashboardWidgetsGrid
+          refreshToken={widgetsRefresh}
+          variant="showcase"
+          organizeOpen={organizeLayout}
+          onOrganizeChange={setOrganizeLayout}
+        />
       </main>
     </div>
+  )
+}
+
+function ConfigureWidgetsFallback() {
+  return (
+    <div className="box-border min-h-screen bg-gray-50 p-[30px] dark:bg-slate-900">
+      <p className="text-sm text-gray-500 dark:text-gray-400">Cargando…</p>
+    </div>
+  )
+}
+
+export default function ConfigureWidgetsPage() {
+  return (
+    <Suspense fallback={<ConfigureWidgetsFallback />}>
+      <ConfigureWidgetsPageInner />
+    </Suspense>
   )
 }

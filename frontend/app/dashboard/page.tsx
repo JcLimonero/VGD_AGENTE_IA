@@ -1,17 +1,15 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AppBreadcrumb } from '@/components/AppBreadcrumb'
 import { DashboardWidgetsGrid } from '@/components/DashboardWidgetsGrid'
 
 function DashboardPageInner() {
   const router = useRouter()
-  const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user, isAuthenticated, logout } = useAuth()
-  const [organizeBoard, setOrganizeBoard] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -21,10 +19,9 @@ function DashboardPageInner() {
 
   useEffect(() => {
     if (searchParams.get('organize') === '1') {
-      setOrganizeBoard(true)
-      router.replace(pathname ?? '/dashboard', { scroll: false })
+      router.replace('/dashboard/widgets?organize=1', { scroll: false })
     }
-  }, [searchParams, router, pathname])
+  }, [searchParams, router])
 
   if (!isAuthenticated) {
     return null
@@ -56,10 +53,7 @@ function DashboardPageInner() {
       </header>
 
       <main className="w-full min-w-0 pt-[30px]">
-        <DashboardWidgetsGrid
-          organizeOpen={organizeBoard}
-          onOrganizeChange={setOrganizeBoard}
-        />
+        <DashboardWidgetsGrid />
       </main>
     </div>
   )

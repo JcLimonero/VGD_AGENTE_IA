@@ -21,7 +21,7 @@ type Props = {
   refreshToken?: number
   variant?: 'page' | 'showcase'
   onWidgetsChanged?: () => void
-  /** Solo `variant="page"`: modo organizar controlado por el padre (p. ej. accesos rápidos → `?organize=1`). */
+  /** Modo organizar controlado por el padre (p. ej. página Configurar widgets). */
   organizeOpen?: boolean
   onOrganizeChange?: (open: boolean) => void
 }
@@ -46,7 +46,7 @@ export function DashboardWidgetsGrid({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [organizeInternal, setOrganizeInternal] = useState(false)
-  const controlledOrganize = variant === 'page' && typeof onOrganizeChange === 'function'
+  const controlledOrganize = typeof onOrganizeChange === 'function'
   const organize = controlledOrganize ? Boolean(organizeOpen) : organizeInternal
 
   const [previewLayout, setPreviewLayout] = useState<Map<string, WidgetGeometry> | null>(null)
@@ -262,17 +262,28 @@ export function DashboardWidgetsGrid({
     <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-slate-600 dark:bg-slate-800">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Widgets en tu dashboard</h2>
-        {widgets.length > 0 && variant === 'page' && organize && (
+        {widgets.length > 0 && (controlledOrganize || organize) ? (
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => exitOrganizeMode()}
-              className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-700"
-            >
-              Listo
-            </button>
+            {controlledOrganize && !organize && (
+              <button
+                type="button"
+                onClick={() => onOrganizeChange?.(true)}
+                className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-800 transition hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-200 dark:hover:bg-violet-900/40"
+              >
+                Organizar cuadrícula
+              </button>
+            )}
+            {organize && (
+              <button
+                type="button"
+                onClick={() => exitOrganizeMode()}
+                className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-700"
+              >
+                Listo
+              </button>
+            )}
           </div>
-        )}
+        ) : null}
       </div>
 
       {organize && widgets.length > 0 && (
@@ -295,7 +306,7 @@ export function DashboardWidgetsGrid({
             <>
               Aún no hay widgets en tu dashboard por defecto. Añade uno desde{' '}
               <Link href="/dashboard/widgets" className="font-medium text-violet-600 underline dark:text-violet-400">
-                Widget showcase
+                Configurar widgets
               </Link>
               .
             </>

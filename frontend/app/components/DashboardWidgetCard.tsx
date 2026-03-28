@@ -30,7 +30,7 @@ type Props = {
   onRemoved: () => void
   /** p. ej. `h-full min-h-0` dentro de una celda de cuadrícula. */
   className?: string
-  /** Actualizar / Quitar: en el dashboard principal solo con “Organizar tablero” activo. */
+  /** Actualizar / Quitar: en el tablero solo en vista lectura; en “Configurar widgets” siempre o con “Organizar cuadrícula”. */
   showWidgetActions: boolean
 }
 

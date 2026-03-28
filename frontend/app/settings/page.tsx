@@ -150,7 +150,7 @@ export default function SettingsPage() {
               { href: '/dashboard', label: 'Dashboard' },
               { href: '/chat', label: 'Chat' },
               { href: '/queries', label: 'Mis Widgets' },
-              { href: '/dashboard/widgets', label: 'Widget showcase' },
+              { href: '/dashboard/widgets', label: 'Configurar widgets' },
             ].map((l) => (
               <li key={l.href}>
                 <Link

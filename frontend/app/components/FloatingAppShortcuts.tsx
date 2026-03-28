@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { BarChart3, GripVertical, LayoutDashboard, LayoutGrid, Settings, X } from 'lucide-react'
+import { BarChart3, LayoutDashboard, LayoutGrid, Settings, X } from 'lucide-react'
 import { QuickAccessStats, type DashboardStatsPayload } from '@/components/QuickAccessStats'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/services/api'
@@ -22,18 +22,11 @@ const SHORTCUT_ITEMS = [
   {
     href: '/dashboard/widgets',
     title: 'Configurar widgets',
-    description: 'Añadir al dashboard, vista previa y tipo de gráfica',
+    description:
+      'Añadir consultas al tablero, vista y gráfica, y organizar la cuadrícula (mover y redimensionar)',
     icon: LayoutDashboard,
     buttonClass: 'bg-purple-600 hover:bg-purple-700 text-white',
-    cta: 'Abrir gestión',
-  },
-  {
-    href: '/dashboard?organize=1',
-    title: 'Organizar tablero',
-    description: 'Mover, redimensionar, actualizar o quitar widgets del dashboard',
-    icon: GripVertical,
-    buttonClass: 'bg-violet-600 hover:bg-violet-700 text-white',
-    cta: 'Modo organizar',
+    cta: 'Abrir configuración',
   },
   {
     href: '/settings',
@@ -47,7 +40,7 @@ const SHORTCUT_ITEMS = [
 
 /**
  * FAB inferior derecho (encima del chat) que abre un diálogo con accesos a Mis Widgets,
- * configuración de widgets, organizar tablero y ajustes — mismo patrón que FloatingChatWidget.
+ * configurar widgets (tablero y cuadrícula) y ajustes — mismo patrón que FloatingChatWidget.
  */
 export function FloatingAppShortcuts() {
   const pathname = usePathname()
@@ -114,7 +107,7 @@ export function FloatingAppShortcuts() {
         >
           <Dialog.Title className="sr-only">Accesos rápidos</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Resumen de estadísticas, Mis Widgets, configurar widgets, organizar tablero y configuración.
+            Resumen de estadísticas, Mis Widgets, configurar widgets y configuración.
           </Dialog.Description>
 
           <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-3 text-white dark:from-slate-800 dark:to-slate-900">
