@@ -1,13 +1,52 @@
 -- Crear schema para plataforma (opcional, usar public si prefieres simplicidad)
 -- CREATE SCHEMA IF NOT EXISTS platform;
 
--- Tabla de usuarios
+-- ============ Roles de plataforma ============
+CREATE TABLE IF NOT EXISTS platform_roles (
+    id                SERIAL PRIMARY KEY,
+    name              TEXT NOT NULL UNIQUE,
+    description       TEXT NOT NULL DEFAULT '',
+    is_base_role      BOOLEAN NOT NULL DEFAULT false,
+    can_create_users  BOOLEAN NOT NULL DEFAULT false,
+    can_access_config BOOLEAN NOT NULL DEFAULT false,
+    all_agencies      BOOLEAN NOT NULL DEFAULT false,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Permisos de agencias por rol (cuando all_agencies=false)
+CREATE TABLE IF NOT EXISTS role_agency_permissions (
+    role_id     INT NOT NULL REFERENCES platform_roles(id) ON DELETE CASCADE,
+    id_agency   TEXT NOT NULL,
+    all_objects BOOLEAN NOT NULL DEFAULT true,
+    PRIMARY KEY (role_id, id_agency)
+);
+
+-- Permisos de objetos DWH por rol y agencia (cuando all_objects=false)
+CREATE TABLE IF NOT EXISTS role_object_permissions (
+    role_id     INT NOT NULL REFERENCES platform_roles(id) ON DELETE CASCADE,
+    id_agency   TEXT NOT NULL,
+    dwh_object  TEXT NOT NULL,
+    PRIMARY KEY (role_id, id_agency, dwh_object)
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_agency ON role_agency_permissions(role_id);
+CREATE INDEX IF NOT EXISTS idx_role_object ON role_object_permissions(role_id, id_agency);
+
+-- Roles base
+INSERT INTO platform_roles (name, description, is_base_role, can_create_users, can_access_config, all_agencies)
+VALUES
+    ('sysadmin', 'Administrador del sistema con acceso completo', true, true, true, true),
+    ('director', 'Director con acceso completo excepto configuración del sistema', true, true, false, true)
+ON CONFLICT (name) DO NOTHING;
+
+-- ============ Tabla de usuarios ============
 CREATE TABLE IF NOT EXISTS platform_users (
     id            SERIAL PRIMARY KEY,
     username      TEXT NOT NULL UNIQUE,
     display_name  TEXT NOT NULL,
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('viewer', 'editor', 'admin')),
+    role_id       INT REFERENCES platform_roles(id),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at TIMESTAMPTZ
 );
@@ -95,15 +134,20 @@ CREATE TABLE IF NOT EXISTS refresh_log (
 -- Índice para refresh_log
 CREATE INDEX IF NOT EXISTS idx_rl_query_triggered ON refresh_log(saved_query_id, triggered_at DESC);
 
--- Usuario de prueba (admin)
--- Password: password123 (hash generado con bcrypt)
-INSERT INTO platform_users (username, display_name, password_hash, role)
-VALUES ('admin@example.com', 'Admin User', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPjYQmLx8X7G2', 'admin')
+-- Usuario default: carlos.limon@nexusqtech.com / 00@Limonero (sysadmin)
+INSERT INTO platform_users (username, display_name, password_hash, role, role_id)
+VALUES (
+    'carlos.limon@nexusqtech.com',
+    'Carlos Limón',
+    '$2b$12$uZDj1iVUhpcoJLzAr1/GFuqGLhYdijCIj3MR3QU3VlylsSDR8MMOe',
+    'admin',
+    (SELECT id FROM platform_roles WHERE name = 'sysadmin')
+)
 ON CONFLICT (username) DO NOTHING;
 
--- Dashboard por defecto para el admin
+-- Dashboard por defecto para carlos.limon
 INSERT INTO dashboards (user_id, title, is_default)
-SELECT id, 'Mi Dashboard', true FROM platform_users WHERE username = 'admin@example.com'
+SELECT id, 'Mi Dashboard', true FROM platform_users WHERE username = 'carlos.limon@nexusqtech.com'
 ON CONFLICT DO NOTHING;
 
 -- Función para actualizar updated_at automáticamente

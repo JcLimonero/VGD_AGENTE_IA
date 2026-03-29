@@ -4,8 +4,47 @@ export interface User {
   id: string
   email: string
   name: string
-  role: 'admin' | 'user'
+  role: string
+  role_id?: number | null
+  can_create_users?: boolean
+  can_access_config?: boolean
   created_at: string
+}
+
+export interface RoleAgencyPermission {
+  id_agency: string
+  all_objects: boolean
+  objects: string[]
+}
+
+export interface PlatformRole {
+  id: number
+  name: string
+  description: string
+  is_base_role: boolean
+  can_create_users: boolean
+  can_access_config: boolean
+  all_agencies: boolean
+  created_at: string
+  user_count?: number
+  agencies?: RoleAgencyPermission[]
+}
+
+export interface PlatformUser {
+  id: number
+  username: string
+  display_name: string
+  role_id: number | null
+  role_name: string | null
+  can_create_users: boolean
+  can_access_config: boolean
+  created_at: string
+  last_login_at: string | null
+}
+
+export interface DwhAgency {
+  id_agency: string
+  name: string
 }
 
 export interface Query {

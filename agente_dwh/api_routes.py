@@ -51,6 +51,22 @@ from agente_dwh.dashboard_db import (
     db_patch_dashboard_widget,
     resolve_dashboard_id,
 )
+from agente_dwh.roles_db import (
+    db_list_roles,
+    db_get_role,
+    db_create_role,
+    db_update_role,
+    db_set_role_agency_permissions,
+    db_delete_role,
+)
+from agente_dwh.users_db import (
+    db_list_users,
+    db_get_user,
+    db_create_user,
+    db_update_user,
+    db_delete_user,
+    db_change_password,
+)
 from psycopg import errors as pg_errors
 
 # ============ Configuración ============
@@ -121,6 +137,42 @@ class DashboardWidgetPatch(BaseModel):
 class ChatMessage(BaseModel):
     message: str
     context: Optional[Dict[str, Any]] = None
+
+# ---- Admin: usuarios ----
+class AdminUserCreate(BaseModel):
+    email: str
+    display_name: str
+    password: str
+    role_id: int
+
+class AdminUserUpdate(BaseModel):
+    display_name: Optional[str] = None
+    role_id: Optional[int] = None
+
+class AdminPasswordReset(BaseModel):
+    new_password: str
+
+# ---- Admin: roles ----
+class RoleAgencyPermission(BaseModel):
+    id_agency: str
+    all_objects: bool = True
+    objects: List[str] = []
+
+class AdminRoleCreate(BaseModel):
+    name: str
+    description: str = ""
+    can_create_users: bool = False
+    can_access_config: bool = False
+    all_agencies: bool = False
+    agencies: List[RoleAgencyPermission] = []
+
+class AdminRoleUpdate(BaseModel):
+    name: str
+    description: str = ""
+    can_create_users: bool = False
+    can_access_config: bool = False
+    all_agencies: bool = False
+    agencies: List[RoleAgencyPermission] = []
 
 # ============ Utilidades ============
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -323,7 +375,7 @@ def _run_agent_answer(message: str, context: Optional[Dict[str, Any]]) -> dict[s
 security = HTTPBearer()
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Obtener usuario actual desde JWT token"""
+    """Obtener usuario actual desde JWT token incluyendo permisos del rol."""
     token = credentials.credentials
     payload = verify_token(token)
     user_id = payload.get("user_id")
@@ -335,7 +387,24 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         "email": payload.get("sub", "user@example.com"),
         "display_name": payload.get("display_name") or "Usuario",
         "role": payload.get("role") or "viewer",
+        "role_id": payload.get("role_id"),
+        "can_create_users": bool(payload.get("can_create_users", False)),
+        "can_access_config": bool(payload.get("can_access_config", False)),
     }
+
+
+def require_sysadmin(current_user: dict = Depends(get_current_user)):
+    """Requiere rol sysadmin."""
+    if current_user.get("role") != "sysadmin":
+        raise HTTPException(status_code=403, detail="Se requiere acceso de SysAdmin")
+    return current_user
+
+
+def require_can_manage_users(current_user: dict = Depends(get_current_user)):
+    """Requiere sysadmin o can_create_users=True."""
+    if current_user.get("role") != "sysadmin" and not current_user.get("can_create_users"):
+        raise HTTPException(status_code=403, detail="Sin permisos para gestionar usuarios")
+    return current_user
 
 # ============ App FastAPI ============
 @asynccontextmanager
@@ -398,21 +467,32 @@ async def login(request: LoginRequest):
     try:
         conn = _get_platform_db_conn()
         row = conn.execute(
-            "SELECT id, username, display_name, role, password_hash FROM platform_users WHERE username = %s",
+            """
+            SELECT u.id, u.username, u.display_name, u.password_hash,
+                   r.id AS role_id, r.name AS role_name,
+                   r.can_create_users, r.can_access_config
+            FROM platform_users u
+            LEFT JOIN platform_roles r ON u.role_id = r.id
+            WHERE u.username = %s
+            """,
             (request.email,),
         ).fetchone()
         conn.close()
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
 
-    if row is None or not verify_password(request.password, row[4]):
+    if row is None or not verify_password(request.password, row[3]):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
+    role_name = row[5] or "viewer"
     access_token = create_access_token(
         data={
             "sub": row[1],
             "user_id": str(row[0]),
-            "role": row[3],
+            "role": role_name,
+            "role_id": str(row[4]) if row[4] else None,
+            "can_create_users": bool(row[6]) if row[6] is not None else False,
+            "can_access_config": bool(row[7]) if row[7] is not None else False,
             "display_name": row[2],
         },
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -423,7 +503,10 @@ async def login(request: LoginRequest):
             "id": str(row[0]),
             "email": row[1],
             "display_name": row[2],
-            "role": row[3],
+            "role": role_name,
+            "role_id": row[4],
+            "can_create_users": bool(row[6]) if row[6] is not None else False,
+            "can_access_config": bool(row[7]) if row[7] is not None else False,
         },
     )
 
@@ -449,6 +532,218 @@ async def auth_me(current_user: dict = Depends(get_current_user)):
 async def api_auth_me(current_user: dict = Depends(get_current_user)):
     """Alias por si el cliente o un proxy espera prefijo `/api`."""
     return current_user
+
+
+# ============ Endpoints de Administración ============
+
+@app.get("/api/admin/agencies")
+async def admin_list_agencies(current_user: dict = Depends(require_can_manage_users)):
+    """Lista las agencias del DWH para configurar permisos de roles."""
+    try:
+        import psycopg
+        dwh_url = os.getenv("DWH_URL", "").replace("postgresql+psycopg://", "postgresql://")
+        conn = psycopg.connect(dwh_url)
+        rows = conn.execute(
+            "SELECT id_agency, name FROM h_agencies WHERE is_active = 1 ORDER BY name"
+        ).fetchall()
+        conn.close()
+        return [{"id_agency": r[0], "name": r[1]} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error consultando agencias: {e}") from e
+
+
+# --- Gestión de Usuarios ---
+
+@app.get("/api/admin/users")
+async def admin_list_users(current_user: dict = Depends(require_can_manage_users)):
+    """Lista todos los usuarios de la plataforma."""
+    try:
+        return db_list_users()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.post("/api/admin/users", status_code=201)
+async def admin_create_user(
+    body: AdminUserCreate,
+    current_user: dict = Depends(require_can_manage_users),
+):
+    """Crea un nuevo usuario. Solo sysadmin o usuarios con can_create_users."""
+    try:
+        pw_hash = hash_password(body.password)
+        user = db_create_user(
+            username=body.email,
+            display_name=body.display_name,
+            password_hash=pw_hash,
+            role_id=body.role_id,
+        )
+        return user
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.put("/api/admin/users/{user_id}")
+async def admin_update_user(
+    user_id: int,
+    body: AdminUserUpdate,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Actualiza nombre o rol de un usuario. Solo sysadmin."""
+    try:
+        updated = db_update_user(user_id, body.display_name, body.role_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204)
+async def admin_delete_user(
+    user_id: int,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Elimina un usuario. Solo sysadmin. No puede eliminar su propia cuenta."""
+    if str(user_id) == str(current_user.get("id")):
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+    try:
+        deleted = db_delete_user(user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def admin_reset_password(
+    user_id: int,
+    body: AdminPasswordReset,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Resetea la contraseña de un usuario. Solo sysadmin."""
+    try:
+        pw_hash = hash_password(body.new_password)
+        updated = db_change_password(user_id, pw_hash)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return {"message": "Contraseña actualizada"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+# --- Gestión de Roles ---
+
+@app.get("/api/admin/roles")
+async def admin_list_roles(current_user: dict = Depends(require_can_manage_users)):
+    """Lista todos los roles disponibles."""
+    try:
+        return db_list_roles()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.get("/api/admin/roles/{role_id}")
+async def admin_get_role(
+    role_id: int,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Obtiene un rol con sus permisos completos."""
+    try:
+        role = db_get_role(role_id)
+        if not role:
+            raise HTTPException(status_code=404, detail="Rol no encontrado")
+        return role
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.post("/api/admin/roles", status_code=201)
+async def admin_create_role(
+    body: AdminRoleCreate,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Crea un nuevo rol dinámico. Solo sysadmin."""
+    try:
+        role = db_create_role(
+            name=body.name,
+            description=body.description,
+            can_create_users=body.can_create_users,
+            can_access_config=body.can_access_config,
+            all_agencies=body.all_agencies,
+        )
+        if not body.all_agencies and body.agencies:
+            db_set_role_agency_permissions(
+                role["id"],
+                [a.model_dump() for a in body.agencies],
+            )
+        return db_get_role(role["id"])
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            raise HTTPException(status_code=409, detail="Ya existe un rol con ese nombre")
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.put("/api/admin/roles/{role_id}")
+async def admin_update_role(
+    role_id: int,
+    body: AdminRoleUpdate,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Actualiza un rol dinámico y sus permisos. Solo sysadmin."""
+    try:
+        updated = db_update_role(
+            role_id=role_id,
+            name=body.name,
+            description=body.description,
+            can_create_users=body.can_create_users,
+            can_access_config=body.can_access_config,
+            all_agencies=body.all_agencies,
+        )
+        if updated is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Rol no encontrado o es un rol base (no editable)",
+            )
+        db_set_role_agency_permissions(
+            role_id,
+            [a.model_dump() for a in body.agencies],
+        )
+        return db_get_role(role_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            raise HTTPException(status_code=409, detail="Ya existe un rol con ese nombre")
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
+
+
+@app.delete("/api/admin/roles/{role_id}", status_code=204)
+async def admin_delete_role(
+    role_id: int,
+    current_user: dict = Depends(require_sysadmin),
+):
+    """Elimina un rol dinámico. No permite eliminar roles base. Solo sysadmin."""
+    try:
+        deleted = db_delete_role(role_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail="Rol no encontrado o es un rol base (no eliminable)",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error de base de datos: {e}") from e
 
 
 # ============ Raíz (evita confusión con el frontend Next.js) ============

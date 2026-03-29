@@ -10,12 +10,18 @@ function mapLoginUser(apiUser: {
   email: string
   display_name?: string
   role?: string
+  role_id?: number | null
+  can_create_users?: boolean
+  can_access_config?: boolean
 }): User {
   return {
     id: String(apiUser.id),
     email: apiUser.email,
     name: apiUser.display_name ?? apiUser.email,
-    role: apiUser.role === 'admin' ? 'admin' : 'user',
+    role: apiUser.role ?? 'viewer',
+    role_id: apiUser.role_id ?? null,
+    can_create_users: apiUser.can_create_users ?? false,
+    can_access_config: apiUser.can_access_config ?? false,
     created_at: new Date().toISOString(),
   }
 }

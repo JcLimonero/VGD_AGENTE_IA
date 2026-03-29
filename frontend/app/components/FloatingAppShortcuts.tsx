@@ -4,13 +4,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { BarChart3, LayoutDashboard, LayoutGrid, Settings, X } from 'lucide-react'
+import { BarChart3, LayoutDashboard, LayoutGrid, Settings, ShieldCheck, Users, X } from 'lucide-react'
 import { QuickAccessStats, type DashboardStatsPayload } from '@/components/QuickAccessStats'
 import { useAuth } from '@/hooks/useAuth'
 import { apiClient } from '@/services/api'
 import { cn } from '@/lib/utils'
 
-const SHORTCUT_ITEMS = [
+const BASE_SHORTCUT_ITEMS = [
   {
     href: '/queries',
     title: 'Mis Widgets',
@@ -18,6 +18,7 @@ const SHORTCUT_ITEMS = [
     icon: BarChart3,
     buttonClass: 'bg-blue-600 hover:bg-blue-700 text-white',
     cta: 'Ver Mis Widgets',
+    adminOnly: false,
   },
   {
     href: '/dashboard/widgets',
@@ -27,6 +28,7 @@ const SHORTCUT_ITEMS = [
     icon: LayoutDashboard,
     buttonClass: 'bg-slate-600 hover:bg-slate-700 text-white',
     cta: 'Abrir configuración',
+    adminOnly: false,
   },
   {
     href: '/settings',
@@ -35,6 +37,25 @@ const SHORTCUT_ITEMS = [
     icon: Settings,
     buttonClass: 'bg-slate-600 hover:bg-slate-700 text-white dark:bg-slate-700 dark:hover:bg-slate-600',
     cta: 'Configurar',
+    adminOnly: false,
+  },
+  {
+    href: '/admin/users',
+    title: 'Gestión de Usuarios',
+    description: 'Crear, editar y gestionar cuentas de usuario de la plataforma',
+    icon: Users,
+    buttonClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+    cta: 'Administrar usuarios',
+    adminOnly: true,
+  },
+  {
+    href: '/admin/roles',
+    title: 'Gestión de Roles',
+    description: 'Crear roles dinámicos con acceso por agencia y objetos del DWH',
+    icon: ShieldCheck,
+    buttonClass: 'bg-violet-600 hover:bg-violet-700 text-white',
+    cta: 'Administrar roles',
+    sysAdminOnly: true,
   },
 ] as const
 
@@ -44,7 +65,7 @@ const SHORTCUT_ITEMS = [
  */
 export function FloatingAppShortcuts() {
   const pathname = usePathname()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [stats, setStats] = useState<DashboardStatsPayload | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -70,6 +91,15 @@ export function FloatingAppShortcuts() {
     },
     [loadStats]
   )
+
+  const isSysAdmin = user?.role === 'sysadmin'
+  const canManageUsers = isSysAdmin || !!user?.can_create_users
+
+  const SHORTCUT_ITEMS = BASE_SHORTCUT_ITEMS.filter((item) => {
+    if ('sysAdminOnly' in item && item.sysAdminOnly) return isSysAdmin
+    if ('adminOnly' in item && item.adminOnly) return canManageUsers
+    return true
+  })
 
   const hide = !isAuthenticated || pathname?.startsWith('/auth')
 

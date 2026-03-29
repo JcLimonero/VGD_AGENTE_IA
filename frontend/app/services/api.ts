@@ -1,5 +1,12 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
-import type { SavedQueryCreatePayload, SavedQueryUpdatePayload } from '@/types'
+import type {
+  SavedQueryCreatePayload,
+  SavedQueryUpdatePayload,
+  PlatformUser,
+  PlatformRole,
+  DwhAgency,
+  RoleAgencyPermission,
+} from '@/types'
 
 /**
  * Si NEXT_PUBLIC_API_BASE_URL está definido → llamada directa al FastAPI.
@@ -87,6 +94,9 @@ class APIClient {
       email: string
       display_name: string
       role: string
+      role_id?: number | null
+      can_create_users?: boolean
+      can_access_config?: boolean
     }>('/auth/me')
     return response.data
   }
@@ -204,6 +214,88 @@ class APIClient {
     } catch {
       return false
     }
+  }
+
+  // ---- Admin: Agencias ----
+  async getAdminAgencies(): Promise<DwhAgency[]> {
+    const response = await this.client.get<DwhAgency[]>('/api/admin/agencies')
+    return response.data
+  }
+
+  // ---- Admin: Usuarios ----
+  async getAdminUsers(): Promise<PlatformUser[]> {
+    const response = await this.client.get<PlatformUser[]>('/api/admin/users')
+    return response.data
+  }
+
+  async createAdminUser(data: {
+    email: string
+    display_name: string
+    password: string
+    role_id: number
+  }): Promise<PlatformUser> {
+    const response = await this.client.post<PlatformUser>('/api/admin/users', data)
+    return response.data
+  }
+
+  async updateAdminUser(
+    userId: number,
+    data: { display_name?: string; role_id?: number }
+  ): Promise<PlatformUser> {
+    const response = await this.client.put<PlatformUser>(`/api/admin/users/${userId}`, data)
+    return response.data
+  }
+
+  async deleteAdminUser(userId: number): Promise<void> {
+    await this.client.delete(`/api/admin/users/${userId}`)
+  }
+
+  async resetAdminUserPassword(userId: number, newPassword: string): Promise<void> {
+    await this.client.post(`/api/admin/users/${userId}/reset-password`, {
+      new_password: newPassword,
+    })
+  }
+
+  // ---- Admin: Roles ----
+  async getAdminRoles(): Promise<PlatformRole[]> {
+    const response = await this.client.get<PlatformRole[]>('/api/admin/roles')
+    return response.data
+  }
+
+  async getAdminRole(roleId: number): Promise<PlatformRole> {
+    const response = await this.client.get<PlatformRole>(`/api/admin/roles/${roleId}`)
+    return response.data
+  }
+
+  async createAdminRole(data: {
+    name: string
+    description: string
+    can_create_users: boolean
+    can_access_config: boolean
+    all_agencies: boolean
+    agencies: RoleAgencyPermission[]
+  }): Promise<PlatformRole> {
+    const response = await this.client.post<PlatformRole>('/api/admin/roles', data)
+    return response.data
+  }
+
+  async updateAdminRole(
+    roleId: number,
+    data: {
+      name: string
+      description: string
+      can_create_users: boolean
+      can_access_config: boolean
+      all_agencies: boolean
+      agencies: RoleAgencyPermission[]
+    }
+  ): Promise<PlatformRole> {
+    const response = await this.client.put<PlatformRole>(`/api/admin/roles/${roleId}`, data)
+    return response.data
+  }
+
+  async deleteAdminRole(roleId: number): Promise<void> {
+    await this.client.delete(`/api/admin/roles/${roleId}`)
   }
 }
 
